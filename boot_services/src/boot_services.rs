@@ -1,3 +1,6 @@
+#[cfg(any(test, feature = "mockall"))]
+use mockall::automock;
+
 use core::{
   marker::PhantomData,
   ptr,
@@ -6,6 +9,7 @@ use core::{
 
 use r_efi::efi::{self, Tpl};
 
+#[cfg_attr(any(test, feature = "mockall"), automock)]
 pub trait BootServices {
   /// Raises a task’s priority level and returns its previous level.
   fn raise_tpl(&self, tpl: Tpl) -> Tpl;

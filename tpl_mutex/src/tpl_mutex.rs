@@ -111,18 +111,9 @@ unsafe impl<T: ?Sized + Send> Send for TplMutexGuard<'_, T> {}
 #[cfg(test)]
 mod test {
   use super::*;
+  use boot_services::MockBootServices;
+  use mockall::predicate::*;
   use r_efi::efi::{TPL_APPLICATION, TPL_NOTIFY};
-
-  struct TestTplServices;
-
-  impl BootServices for TestTplServices {
-    fn raise_tpl(&self, _tpl: r_efi::efi::Tpl) -> r_efi::efi::Tpl {
-      TPL_APPLICATION
-    }
-    fn restore_tpl(&self, tpl: r_efi::efi::Tpl) {
-      assert_eq!(TPL_APPLICATION, tpl)
-    }
-  }
 
   #[derive(Debug, Default)]
   struct TestStruct {
@@ -134,9 +125,17 @@ mod test {
     }
   }
 
+  fn boot_services() -> MockBootServices {
+    let mut boot_services = MockBootServices::new();
+    boot_services.expect_raise_tpl().with(eq(TPL_NOTIFY)).return_const(TPL_APPLICATION);
+    boot_services.expect_restore_tpl().with(eq(TPL_APPLICATION)).return_const(());
+    boot_services
+  }
+
   #[test]
   fn test_try_lock() {
-    let mutex = TplMutex::new(&TestTplServices, TPL_NOTIFY, 0);
+    let mut boot_services = boot_services();
+    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, 0);
 
     let guard_result = mutex.try_lock();
     assert!(matches!(guard_result, Ok(_)), "First lock should work.");
@@ -153,7 +152,8 @@ mod test {
   #[test]
   #[should_panic(expected = "Re-entrant lock")]
   fn test_that_locking_a_locked_mutex_with_lock_fn_should_panic() {
-    let mutex = TplMutex::new(&TestTplServices, TPL_NOTIFY, TestStruct::default());
+    let boot_services = boot_services();
+    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
     let guard_result = mutex.try_lock();
     assert!(matches!(guard_result, Ok(_)));
     let _ = mutex.lock();
@@ -161,7 +161,8 @@ mod test {
 
   #[test]
   fn test_debug_output_for_tpl_mutex() {
-    let mutex = TplMutex::new(&TestTplServices, TPL_NOTIFY, TestStruct::default());
+    let boot_services = boot_services();
+    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
     assert_eq!("TplMutex { data: TestStruct { field: 0 }, .. }", format!("{mutex:?}"));
     let _guard = mutex.lock();
     assert_eq!("TplMutex { data: <locked>, .. }", format!("{mutex:?}"));
@@ -169,7 +170,8 @@ mod test {
 
   #[test]
   fn test_display_and_debug_output_for_tpl_mutex_guard() {
-    let mutex = TplMutex::new(&TestTplServices, TPL_NOTIFY, TestStruct::default());
+    let boot_services = boot_services();
+    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
     let guard = mutex.lock();
     assert_eq!("0", format!("{guard}"));
     assert_eq!("TestStruct { field: 0 }", format!("{guard:?}"));
