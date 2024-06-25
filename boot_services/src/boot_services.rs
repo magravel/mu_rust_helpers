@@ -1,18 +1,224 @@
+#![cfg_attr(all(not(test), not(feature = "mockall")), no_std)]
+extern crate alloc;
+
+pub mod event;
+pub mod tpl;
+
+#[cfg(any(test, feature = "mockall"))]
+use mockall::automock;
+
 use core::{
+  ffi::c_void,
   marker::PhantomData,
+  mem::{self, MaybeUninit},
+  option::Option,
   ptr,
   sync::atomic::{AtomicPtr, Ordering},
 };
 
-use r_efi::efi::{self, Tpl};
+use r_efi::efi;
 
+use event::{EventCtxMutPtr, EventNotifyCallback, EventTimerType, EventType};
+use tpl::{Tpl, TplGuard};
+
+/// Functions that are available *before* a successful call to EFI_BOOT_SERVICES.ExitBootServices().
+#[cfg_attr(any(test, feature = "mockall"), automock)]
 pub trait BootServices {
+  /// Create an event.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createevent" target="_blank">
+  ///   7.1.1. EFI_BOOT_SERVICES.CreateEvent()
+  /// </a>
+  ///
+  /// # Examples
+  ///  
+  /// ```
+  /// #  static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+  /// #  let efi_boot_services = unsafe {
+  /// #    let mut bs = core::mem::MaybeUninit::<r_efi::efi::BootServices>::zeroed();
+  /// #    bs.assume_init_mut().create_event = efi_create_event;
+  /// #    bs.assume_init()
+  /// #  };
+  /// #  BOOT_SERVICE.initialize(&efi_boot_services);
+  /// #
+  /// #  extern "efiapi" fn efi_create_event(
+  /// #    event_type: u32,
+  /// #    notify_tpl: r_efi::efi::Tpl,
+  /// #    notify_function: Option<r_efi::efi::EventNotify>,
+  /// #    notify_context: *mut core::ffi::c_void,
+  /// #    event: *mut r_efi::efi::Event,
+  /// #  ) -> r_efi::efi::Status {
+  /// #    r_efi::efi::Status::SUCCESS
+  /// #  }
+  ///
+  /// use boot_services::{StandardBootServices, BootServices, event::EventType, tpl::Tpl};
+  ///
+  /// // static BOOT_SERVICE: StandardBootServices = ...;
+  ///
+  /// extern "efiapi" fn notify_callback(_e: r_efi::efi::Event, ctx: Box<i32>) {
+  ///   // ...
+  /// }
+  ///
+  /// let ctx = Box::new(10);
+  ///
+  /// let status = BOOT_SERVICE.create_event(
+  ///   EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+  ///   Tpl::APPLICATION,
+  ///   Some(notify_callback),
+  ///   ctx,
+  /// );
+  /// ```
+  fn create_event<T: EventCtxMutPtr<Ctx = Ctx> + 'static, Ctx: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: Option<EventNotifyCallback<T>>,
+    notify_context: T,
+  ) -> Result<efi::Event, efi::Status> {
+    //SAFETY: EventCtxMutPtr generic is used to guaranteed that rust borowing and rules are meet.
+    unsafe {
+      self.create_event_unchecked(
+        event_type,
+        notify_tpl,
+        mem::transmute(notify_function),
+        notify_context.into_raw_mut(),
+      )
+    }
+  }
+
+  /// Create an event in a group.
+  ///
+  /// If no group is specified by EventGroup, then this function behaves as if the same parameters had been passed to [`BootServices::create_event`].
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createeventex" target="_blank">
+  ///   7.1.2. EFI_BOOT_SERVICES.CreateEventEx()
+  /// </a>
+  fn create_event_ex<T: EventCtxMutPtr<Ctx = Ctx> + 'static, Ctx: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: Option<EventNotifyCallback<T>>,
+    notify_context: T,
+    event_group: Option<&'static efi::Guid>,
+  ) -> Result<efi::Event, efi::Status> {
+    //SAFETY: EventCtxMutPtr generic is used to guaranteed that rust borowing and rules are meet.
+    unsafe {
+      self.create_event_ex_unchecked(
+        event_type,
+        notify_tpl.into(),
+        mem::transmute(notify_function),
+        notify_context.into_raw_mut(),
+        event_group,
+      )
+    }
+  }
+
+  /// Prefer normal [`BootServices::create_event`] when possible.
+  ///
+  /// # Safety
+  ///
+  /// When calling this method, you have to make sure that *notify_context* pointer is **null** or all of the following is true:
+  /// * The pointer must be properly aligned.
+  /// * It must be "dereferenceable" into type `T`
+  /// * It must remain a valid pointer for the lifetime of the event.
+  /// * You must enforce Rust’s borrowing[^borrowing rules] rules rules.
+  ///
+  /// [^borrowing rules]:
+  /// Rust By Example Book:
+  /// <a href="https://doc.rust-lang.org/beta/rust-by-example/scope/borrow.html" target="_blank">
+  ///   15.3. Borrowing
+  /// </a>
+  unsafe fn create_event_unchecked<T: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: Option<EventNotifyCallback<*mut T>>,
+    notify_context: *mut T,
+  ) -> Result<efi::Event, efi::Status>;
+
+  /// Prefer normal [`BootServices::create_event_ex`] when possible.
+  ///
+  /// # Safety
+  ///
+  /// Make sure to comply to the same constraint as [`BootServices::create_event_unchecked`]
+  unsafe fn create_event_ex_unchecked<T: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: EventNotifyCallback<*mut T>,
+    notify_context: *mut T,
+    event_group: Option<&'static efi::Guid>,
+  ) -> Result<efi::Event, efi::Status>;
+
+  /// Close an event.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-closeevent" target="_blank">
+  ///   7.1.3. EFI_BOOT_SERVICES.CloseEvent()
+  /// </a>
+  ///
+  /// [^note]: It is safe to call *close_event* in the notify function.
+  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status>; // TODO is is relevent to have a result if it can only return Success.
+
+  /// Signals an event.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-signalevent" target="_blank">
+  ///   7.1.4. EFI_BOOT_SERVICES.SignalEvent()
+  /// </a>
+  fn signal_event(&self, event: efi::Event) -> Result<(), efi::Status>; // TODO is is relevent to have a result if it can only return Success.
+
+  /// Stops execution until an event is signaled.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-waitforevent" target="_blank">
+  ///   7.1.5. EFI_BOOT_SERVICES.WaitForEvent()
+  /// </a>
+  fn wait_for_event(&self, events: &mut [efi::Event]) -> Result<usize, efi::Status>;
+
+  /// Checks whether an event is in the signaled state.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-checkevent" target="_blank">
+  ///   7.1.6. EFI_BOOT_SERVICES.CheckEvent()
+  /// </a>
+  fn check_event(&self, event: efi::Event) -> Result<(), efi::Status>;
+
+  /// Sets the type of timer and the trigger time for a timer event.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-settimer" target="_blank">
+  ///   7.1.7. EFI_BOOT_SERVICES.SetTimer()
+  /// </a>
+  fn set_timer(&self, event: efi::Event, timer_type: EventTimerType, trigger_time: u64) -> Result<(), efi::Status>;
+
+  /// Raises a task's priority level and returns a [`TplGuard`] that will restore the tpl when dropped.
+  ///
+  /// See [`BootServices::raise_tpl`] and [`BootServices::restore_tpl`] for more details.
+  fn raise_tpl_guarded<'a>(&'a self, tpl: Tpl) -> TplGuard<'a, Self> {
+    TplGuard { boot_services: self, retore_tpl: self.raise_tpl(tpl) }
+  }
+
   /// Raises a task’s priority level and returns its previous level.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-raisetpl" target="_blank">
+  ///   7.1.8. EFI_BOOT_SERVICES.RaiseTPL()
+  /// </a>
   fn raise_tpl(&self, tpl: Tpl) -> Tpl;
   /// Restores a task’s priority level to its previous value.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-restoretpl" target="_blank">
+  ///   7.1.9. EFI_BOOT_SERVICES.RestoreTPL()
+  /// </a>
   fn restore_tpl(&self, tpl: Tpl);
 }
 
+/// This is the boot services used in the UEFI.
+/// it wraps an atomic ptr to [`efi::BootServices`]
 #[derive(Debug)]
 pub struct StandardBootServices<'a> {
   efi_boot_services: AtomicPtr<efi::BootServices>,
@@ -40,7 +246,7 @@ impl<'a> StandardBootServices<'a> {
       // The efi::BootServices is only read, that is why we use a non mutable reference.
       self.efi_boot_services.store(efi_boot_services as *const _ as *mut _, Ordering::SeqCst)
     } else {
-      panic!("Boot services already initialize.")
+      panic!("Boot services is already initialize.")
     }
   }
 
@@ -48,44 +254,463 @@ impl<'a> StandardBootServices<'a> {
   /// This function will panic if it was not initialize.
   fn efi_boot_services(&self) -> &efi::BootServices {
     // SAFETY: This pointer is assume to be a valid efi::BootServices pointer since the only way to set it was via an efi::BootServices reference.
-    unsafe {
-      self.efi_boot_services.load(Ordering::SeqCst).as_ref::<'a>().expect("Boot services has not been initialize.")
-    }
+    unsafe { self.efi_boot_services.load(Ordering::SeqCst).as_ref::<'a>().expect("Boot services is not initialize.") }
   }
 }
 
-unsafe impl Sync for StandardBootServices<'_> {}
-unsafe impl Send for StandardBootServices<'_> {}
+///SAFETY: StandardBootServices uses an atomic ptr to access the BootServices.
+unsafe impl Sync for StandardBootServices<'static> {}
+///SAFETY: When the lifetime is `'static`, the pointer is guaranteed to stay valid.
+unsafe impl Send for StandardBootServices<'static> {}
 
 impl BootServices for StandardBootServices<'_> {
-  fn raise_tpl(&self, new_tpl: efi::Tpl) -> efi::Tpl {
-    (self.efi_boot_services().raise_tpl)(new_tpl)
+  unsafe fn create_event_unchecked<T: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: Option<EventNotifyCallback<*mut T>>,
+    notify_context: *mut T,
+  ) -> Result<efi::Event, efi::Status> {
+    let mut event = MaybeUninit::zeroed();
+    let status = (self.efi_boot_services().create_event)(
+      event_type.into(),
+      notify_tpl.into(),
+      mem::transmute(notify_function),
+      notify_context as *mut c_void,
+      event.as_mut_ptr(),
+    );
+    if status.is_error() {
+      Err(status)
+    } else {
+      Ok(event.assume_init())
+    }
   }
 
-  fn restore_tpl(&self, old_tpl: efi::Tpl) {
-    (self.efi_boot_services().restore_tpl)(old_tpl)
+  unsafe fn create_event_ex_unchecked<T: Sized + 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: EventNotifyCallback<*mut T>,
+    notify_context: *mut T,
+    event_group: Option<&'static efi::Guid>,
+  ) -> Result<efi::Event, efi::Status> {
+    let mut event = MaybeUninit::zeroed();
+    let status = (self.efi_boot_services().create_event_ex)(
+      event_type.into(),
+      notify_tpl.into(),
+      mem::transmute(notify_function),
+      notify_context as *mut c_void,
+      event_group.map_or(ptr::null_mut(), |x| x as *const _),
+      event.as_mut_ptr(),
+    );
+    if status.is_error() {
+      Err(status)
+    } else {
+      Ok(event.assume_init())
+    }
+  }
+
+  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().close_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
+  }
+
+  fn signal_event(&self, event: efi::Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().signal_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
+  }
+
+  fn wait_for_event(&self, events: &mut [efi::Event]) -> Result<usize, efi::Status> {
+    let mut index = MaybeUninit::zeroed();
+    let status = (self.efi_boot_services().wait_for_event)(events.len(), events.as_mut_ptr(), index.as_mut_ptr());
+    if status.is_error() {
+      Err(status)
+    } else {
+      Ok(unsafe { index.assume_init() })
+    }
+  }
+
+  fn check_event(&self, event: efi::Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().check_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
+  }
+
+  fn set_timer(&self, event: efi::Event, timer_type: EventTimerType, trigger_time: u64) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().set_timer)(event, timer_type.into(), trigger_time) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
+  }
+
+  fn raise_tpl(&self, new_tpl: Tpl) -> Tpl {
+    (self.efi_boot_services().raise_tpl)(new_tpl.into()).into()
+  }
+
+  fn restore_tpl(&self, old_tpl: Tpl) {
+    (self.efi_boot_services().restore_tpl)(old_tpl.into())
   }
 }
 
 #[cfg(test)]
 mod test {
-  use core::mem::MaybeUninit;
+  use efi;
 
   use super::*;
+  use core::{mem::MaybeUninit, sync::atomic::AtomicUsize};
 
   #[test]
-  #[should_panic(expected = "Boot services has not been initialize.")]
+  #[should_panic(expected = "Boot services is not initialize.")]
   fn test_that_accessing_uninit_boot_services_should_panic() {
     let bs = StandardBootServices::new_uninit();
     bs.efi_boot_services();
   }
 
   #[test]
-  #[should_panic(expected = "Boot services already initialize.")]
+  #[should_panic(expected = "Boot services is already initialize.")]
   fn test_that_initializing_boot_services_multiple_time_should_panic() {
     let efi_bs = unsafe { MaybeUninit::<efi::BootServices>::zeroed().as_ptr().as_ref().unwrap() };
     let bs = StandardBootServices::new_uninit();
     bs.initialize(efi_bs);
     bs.initialize(efi_bs);
+  }
+
+  #[test]
+  fn test_create_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event = efi_create_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn notify_callback(_e: efi::Event, ctx: Box<i32>) {
+      assert_eq!(10, *ctx)
+    }
+
+    extern "efiapi" fn efi_create_event(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *mut c_void,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(notify_callback as *const fn(), unsafe { mem::transmute(notify_function) });
+      assert_ne!(ptr::null_mut(), notify_context);
+      assert_ne!(ptr::null_mut(), event);
+
+      if let Some(notify_function) = notify_function {
+        notify_function(ptr::null_mut(), notify_context);
+      }
+      efi::Status::SUCCESS
+    }
+
+    let ctx = Box::new(10);
+    let status = BOOT_SERVICE.create_event(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
+      Some(notify_callback),
+      ctx,
+    );
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
+  fn test_create_event_no_notify() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event = efi_create_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_create_event(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *mut c_void,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(None, notify_function);
+      assert_ne!(ptr::null_mut(), notify_context);
+      assert_ne!(ptr::null_mut(), event);
+      efi::Status::SUCCESS
+    }
+
+    let status = BOOT_SERVICE.create_event(EventType::RUNTIME | EventType::NOTIFY_SIGNAL, Tpl::APPLICATION, None, &());
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
+  fn test_create_event_ex() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event_ex = efi_create_event_ex;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn notify_callback(_e: efi::Event, ctx: Box<i32>) {
+      assert_eq!(10, *ctx)
+    }
+
+    extern "efiapi" fn efi_create_event_ex(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *const c_void,
+      event_group: *const efi::Guid,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(notify_callback as *const fn(), unsafe { mem::transmute(notify_function) });
+      assert_ne!(ptr::null(), notify_context);
+      assert_eq!(ptr::addr_of!(GUID), event_group);
+      assert_ne!(ptr::null_mut(), event);
+
+      if let Some(notify_function) = notify_function {
+        notify_function(ptr::null_mut(), notify_context as *mut _);
+      }
+      efi::Status::SUCCESS
+    }
+    static GUID: efi::Guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
+    let ctx = Box::new(10);
+    let status = BOOT_SERVICE.create_event_ex(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
+      Some(notify_callback),
+      ctx,
+      Some(&GUID),
+    );
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
+  fn test_create_event_ex_no_notify() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event_ex = efi_create_event_ex;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_create_event_ex(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *const c_void,
+      event_group: *const efi::Guid,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(None, notify_function);
+      assert_ne!(ptr::null(), notify_context);
+      assert_eq!(ptr::addr_of!(GUID), event_group);
+      assert_ne!(ptr::null_mut(), event);
+      efi::Status::SUCCESS
+    }
+    static GUID: efi::Guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
+    let status = BOOT_SERVICE.create_event_ex(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
+      None,
+      &(),
+      Some(&GUID),
+    );
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
+  fn test_close_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().close_event = efi_close_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_close_event(event: efi::Event) -> efi::Status {
+      assert_eq!(1, event as usize);
+      efi::Status::SUCCESS
+    }
+
+    let event = 1_usize as efi::Event;
+    let status = BOOT_SERVICE.close_event(event);
+    assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  fn test_signal_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().signal_event = efi_signal_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_signal_event(event: efi::Event) -> efi::Status {
+      assert_eq!(1, event as usize);
+      efi::Status::SUCCESS
+    }
+
+    let event = 1_usize as efi::Event;
+    let status = BOOT_SERVICE.signal_event(event);
+    assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  fn test_wait_for_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().wait_for_event = efi_wait_for_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_wait_for_event(
+      number_of_event: usize,
+      events: *mut efi::Event,
+      index: *mut usize,
+    ) -> efi::Status {
+      assert_eq!(2, number_of_event);
+      assert_ne!(ptr::null_mut(), events);
+
+      unsafe { ptr::write(index, 1) }
+      efi::Status::SUCCESS
+    }
+
+    let mut events = [1_usize as efi::Event, 2_usize as efi::Event];
+    let status = BOOT_SERVICE.wait_for_event(&mut events);
+    assert!(matches!(status, Ok(1)));
+  }
+
+  #[test]
+  fn test_check_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().check_event = efi_check_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_check_event(event: efi::Event) -> efi::Status {
+      assert_eq!(1, event as usize);
+      efi::Status::SUCCESS
+    }
+
+    let event = 1_usize as efi::Event;
+    let status = BOOT_SERVICE.check_event(event);
+    assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  fn test_set_timer() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().set_timer = efi_set_timer;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_set_timer(event: efi::Event, r#type: efi::TimerDelay, trigger_time: u64) -> efi::Status {
+      assert_eq!(1, event as usize);
+      assert_eq!(efi::TIMER_PERIODIC, r#type);
+      assert_eq!(200, trigger_time);
+      efi::Status::SUCCESS
+    }
+
+    let event = 1_usize as efi::Event;
+    let status = BOOT_SERVICE.set_timer(event, EventTimerType::Periodic, 200);
+    assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  fn test_raise_tpl_guarded() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().raise_tpl = efi_raise_tpl;
+      bs.assume_init_mut().restore_tpl = efi_restore_tpl;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    static CURRENT_TPL: AtomicUsize = AtomicUsize::new(efi::TPL_APPLICATION);
+
+    extern "efiapi" fn efi_raise_tpl(tpl: efi::Tpl) -> efi::Tpl {
+      assert_eq!(efi::TPL_NOTIFY, tpl);
+      CURRENT_TPL.swap(tpl, Ordering::Relaxed)
+    }
+
+    extern "efiapi" fn efi_restore_tpl(tpl: efi::Tpl) {
+      assert_eq!(efi::TPL_APPLICATION, tpl);
+      CURRENT_TPL.swap(tpl, Ordering::Relaxed);
+    }
+
+    let guard = BOOT_SERVICE.raise_tpl_guarded(Tpl::NOTIFY);
+    assert_eq!(Tpl::APPLICATION, guard.retore_tpl);
+    assert_eq!(efi::TPL_NOTIFY, CURRENT_TPL.load(Ordering::Relaxed));
+    drop(guard);
+    assert_eq!(efi::TPL_APPLICATION, CURRENT_TPL.load(Ordering::Relaxed));
+  }
+
+  #[test]
+  fn test_raise_tpl() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().raise_tpl = efi_raise_tpl;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_raise_tpl(tpl: efi::Tpl) -> efi::Tpl {
+      assert_eq!(efi::TPL_NOTIFY, tpl);
+      efi::TPL_APPLICATION
+    }
+
+    let status = BOOT_SERVICE.raise_tpl(Tpl::NOTIFY);
+    assert_eq!(Tpl::APPLICATION, status);
+  }
+
+  #[test]
+  fn test_restore_tpl() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().restore_tpl = efi_restore_tpl;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_restore_tpl(tpl: efi::Tpl) {
+      assert_eq!(efi::TPL_APPLICATION, tpl);
+    }
+
+    BOOT_SERVICE.restore_tpl(Tpl::APPLICATION);
   }
 }
