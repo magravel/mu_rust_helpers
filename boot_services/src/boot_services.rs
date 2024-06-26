@@ -5,12 +5,40 @@ use core::{
   marker::PhantomData,
   ptr,
   sync::atomic::{AtomicPtr, Ordering},
+  ffi::c_void
 };
 
-use r_efi::efi::{self, Tpl};
+use r_efi::efi::{self, Event, EventNotify, Guid, TimerDelay, Tpl};
 
 #[cfg_attr(any(test, feature = "mockall"), automock)]
 pub trait BootServices {
+  fn create_event(
+    &self,
+    r#type: u32,
+    notify_tpl: Tpl,
+    notify_function: EventNotify,
+    notify_context: *mut c_void,
+  ) -> Result<Event, efi::Status>;
+
+  fn create_event_ex(
+    &self,
+    event_type: u32,
+    notify_tpl: Tpl,
+    notify_function: EventNotify,
+    notify_context: *mut c_void, // mut or const ???
+    event_group: *const Guid,
+  ) -> Result<Event, efi::Status>;
+
+  fn close_evne(&self, event: Event) -> Result<(), efi::Status>;
+
+  fn signal_event(&self, event: Event) -> Result<(), efi::Status>;
+
+  fn wait_for_event(&self, number_of_event: usize, events: &[Event]) -> Result<usize, efi::Status>;
+
+  fn check_event(&self, event: Event) -> Result<(), efi::Status>;
+
+  fn set_timer(&self, event: Event, timer_type: TimerDelay, trigger_tiem: u64) -> Result<(), efi::Status>;
+
   /// Raises a task’s priority level and returns its previous level.
   fn raise_tpl(&self, tpl: Tpl) -> Tpl;
   /// Restores a task’s priority level to its previous value.
@@ -62,6 +90,47 @@ unsafe impl Sync for StandardBootServices<'_> {}
 unsafe impl Send for StandardBootServices<'_> {}
 
 impl BootServices for StandardBootServices<'_> {
+  fn create_event(
+    &self,
+    r#type: u32,
+    notify_tpl: Tpl,
+    notify_function: EventNotify,
+    notify_context: *mut c_void,
+  ) -> Result<Event, efi::Status> {
+    todo!()
+  }
+
+  fn create_event_ex(
+    &self,
+    event_type: u32,
+    notify_tpl: Tpl,
+    notify_function: EventNotify,
+    notify_context: *mut c_void,
+    event_group: *const Guid,
+  ) -> Result<Event, efi::Status> {
+    todo!()
+  }
+
+  fn close_evne(&self, event: Event) -> Result<(), efi::Status> {
+    todo!()
+  }
+
+  fn signal_event(&self, event: Event) -> Result<(), efi::Status> {
+    todo!()
+  }
+
+  fn wait_for_event(&self, number_of_event: usize, events: &[Event]) -> Result<usize, efi::Status> {
+    todo!()
+  }
+
+  fn check_event(&self, event: Event) -> Result<(), efi::Status> {
+    todo!()
+  }
+
+  fn set_timer(&self, event: Event, timer_type: TimerDelay, trigger_tiem: u64) -> Result<(), efi::Status> {
+    todo!()
+  }
+
   fn raise_tpl(&self, new_tpl: efi::Tpl) -> efi::Tpl {
     (self.efi_boot_services().raise_tpl)(new_tpl)
   }
