@@ -7,11 +7,11 @@ use core::{
 
 use r_efi::efi;
 
-use boot_services::BootServices;
+use boot_services::{BootServices, StandardBootServices};
 
 /// Type use for mutual exclusion of data across Tpl (task priority level)
-pub struct TplMutex<'a, T: ?Sized> {
-  boot_services: &'a dyn BootServices,
+pub struct TplMutex<'a, T: ?Sized, B: BootServices> {
+  boot_services: &'a B,
   tpl_lock_level: efi::Tpl,
   lock: AtomicBool,
   data: UnsafeCell<T>,
@@ -19,24 +19,24 @@ pub struct TplMutex<'a, T: ?Sized> {
 
 /// RAII implementation of a [TplMutex] lock. When this structure is dropped, the lock will be unlocked.
 #[must_use = "if unused the TplMutex will immediately unlock"]
-pub struct TplMutexGuard<'a, T: ?Sized> {
-  tpl_mutex: &'a TplMutex<'a, T>,
+pub struct TplMutexGuard<'a, T: ?Sized, B: BootServices> {
+  tpl_mutex: &'a TplMutex<'a, T, B>,
   release_tpl: efi::Tpl,
 }
 
-impl<'a, T> TplMutex<'a, T> {
+impl<'a, T, B: BootServices> TplMutex<'a, T, B> {
   /// Create an new TplMutex in an unlock state.
-  pub const fn new(boot_services: &'a dyn BootServices, tpl_lock_level: efi::Tpl, data: T) -> Self {
+  pub const fn new(boot_services: &'a B, tpl_lock_level: efi::Tpl, data: T) -> Self {
     Self { boot_services, tpl_lock_level, lock: AtomicBool::new(false), data: UnsafeCell::new(data) }
   }
 }
 
-impl<'a, T: ?Sized> TplMutex<'a, T> {
+impl<'a, T: ?Sized, B: BootServices> TplMutex<'a, T, B> {
   /// Attempt to lock the mutex and return a [TplMutexGuard] if the mutex was not locked.
   ///
   /// # Panics
   /// This call will panic if the mutex is already locked.
-  pub fn lock(&self) -> TplMutexGuard<T> {
+  pub fn lock(&self) -> TplMutexGuard<T, B> {
     self.try_lock().map_err(|_| "Re-entrant lock").unwrap()
   }
 
@@ -44,7 +44,7 @@ impl<'a, T: ?Sized> TplMutex<'a, T> {
   ///
   /// # Errors
   /// If the mutex is already lock, then this call will return [Result::Err()].
-  pub fn try_lock(&self) -> Result<TplMutexGuard<T>, ()> {
+  pub fn try_lock(&self) -> Result<TplMutexGuard<T, B>, ()> {
     self
       .lock
       .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -53,14 +53,14 @@ impl<'a, T: ?Sized> TplMutex<'a, T> {
   }
 }
 
-impl<T: ?Sized> Drop for TplMutexGuard<'_, T> {
+impl<T: ?Sized, B: BootServices> Drop for TplMutexGuard<'_, T, B> {
   fn drop(&mut self) {
     self.tpl_mutex.boot_services.restore_tpl(self.release_tpl);
     self.tpl_mutex.lock.store(false, Ordering::Release);
   }
 }
 
-impl<'a, T: ?Sized> Deref for TplMutexGuard<'a, T> {
+impl<'a, T: ?Sized, B: BootServices> Deref for TplMutexGuard<'a, T, B> {
   type Target = T;
   fn deref(&self) -> &'a T {
     // SAFETY:
@@ -70,7 +70,7 @@ impl<'a, T: ?Sized> Deref for TplMutexGuard<'a, T> {
   }
 }
 
-impl<'a, T: ?Sized> DerefMut for TplMutexGuard<'a, T> {
+impl<'a, T: ?Sized, B: BootServices> DerefMut for TplMutexGuard<'a, T, B> {
   fn deref_mut(&mut self) -> &'a mut T {
     // SAFETY:
     // `as_ref` is guarantee to have a valid pointer because it come from a UnsafeCell.
@@ -79,7 +79,7 @@ impl<'a, T: ?Sized> DerefMut for TplMutexGuard<'a, T> {
   }
 }
 
-impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for TplMutex<'a, T> {
+impl<'a, T: ?Sized + fmt::Debug, B: BootServices> fmt::Debug for TplMutex<'a, T, B> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     let mut dbg = f.debug_struct("TplMutex");
     match self.try_lock() {
@@ -90,23 +90,23 @@ impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for TplMutex<'a, T> {
   }
 }
 
-impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for TplMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Debug, B: BootServices> fmt::Debug for TplMutexGuard<'a, T, B> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     Debug::fmt(self.deref(), f)
   }
 }
 
-impl<'a, T: ?Sized + fmt::Display> fmt::Display for TplMutexGuard<'a, T> {
+impl<'a, T: ?Sized + fmt::Display, B: BootServices> fmt::Display for TplMutexGuard<'a, T, B> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     Display::fmt(self.deref(), f)
   }
 }
 
-unsafe impl<T: ?Sized + Send> Sync for TplMutex<'_, T> {}
-unsafe impl<T: ?Sized + Send> Send for TplMutex<'_, T> {}
+unsafe impl<T: ?Sized + Send, B: BootServices> Sync for TplMutex<'_, T, B> {}
+unsafe impl<T: ?Sized + Send, B: BootServices> Send for TplMutex<'_, T, B> {}
 
-unsafe impl<T: ?Sized + Sync> Sync for TplMutexGuard<'_, T> {}
-unsafe impl<T: ?Sized + Send> Send for TplMutexGuard<'_, T> {}
+unsafe impl<T: ?Sized + Sync, B: BootServices> Sync for TplMutexGuard<'_, T, B> {}
+unsafe impl<T: ?Sized + Send, B: BootServices> Send for TplMutexGuard<'_, T, B> {}
 
 #[cfg(test)]
 mod test {
