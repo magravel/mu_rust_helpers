@@ -1,17 +1,18 @@
 use core::ops;
-use std::{ffi::c_void, ptr};
+use std::{ffi::c_void, ops::Deref, pin::Pin, ptr};
 
-use r_efi::efi::Event;
+use r_efi::efi::{Event, TIMER_CANCEL, TIMER_PERIODIC, TIMER_RELATIVE};
 
-pub type EventCallback<C> = extern "efiapi" fn(Event, C);
+pub type EventNotifyCallback<T> = extern "efiapi" fn(Event, T);
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct NoContext(*mut c_void);
 
 /// Only implement this trait on struct that can be recreated from a ptr with mem::transmute.
-pub unsafe trait EventCtxMutPtr<T: Sized>
+pub unsafe trait EventCtxMutPtr<T>
 where
+  T: Sized,
   Self: Sized,
 {
   type FFIType;
@@ -33,11 +34,43 @@ unsafe impl<T: Sized + Send> EventCtxMutPtr<T> for Box<T> {
   }
 }
 
+unsafe impl<C: EventCtxMutPtr<T, FFIType = C> + 'static, T: Sized + 'static> EventCtxMutPtr<T> for Option<C> {
+  type FFIType = Self;
+  fn into_raw_mut(self) -> *mut T {
+    self.map(C::into_raw_mut).unwrap_or(ptr::null_mut())
+  }
+}
+
+unsafe impl<C: EventCtxMutPtr<T, FFIType = C> + 'static + Deref<Target = T>, T: Sized + Unpin + 'static>
+  EventCtxMutPtr<T> for Pin<C>
+{
+  type FFIType = Self;
+  fn into_raw_mut(self) -> *mut T {
+    C::into_raw_mut(Pin::into_inner(self))
+  }
+}
+
 unsafe impl EventCtxMutPtr<c_void> for () {
   type FFIType = NoContext;
   fn into_raw_mut(self) -> *mut c_void {
     ptr::null_mut()
   }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u32)]
+pub enum EventTimerType {
+  Cancel = TIMER_CANCEL,
+  Periodic = TIMER_PERIODIC,
+  Relative = TIMER_RELATIVE,
+}
+
+impl Into<u32> for EventTimerType {
+    fn into(self) -> u32 {
+      match self {
+         t => t as u32  
+      }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

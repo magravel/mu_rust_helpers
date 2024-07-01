@@ -12,9 +12,9 @@ use core::{
   sync::atomic::{AtomicPtr, Ordering},
 };
 
-use r_efi::efi::{self, Event, EventNotify, Guid, TimerDelay, Tpl};
+use r_efi::efi::{self, Event, Guid, Status, Tpl};
 
-use event::{EventCallback, EventCtxMutPtr, EventType};
+use event::{EventCtxMutPtr, EventNotifyCallback, EventTimerType, EventType};
 
 #[cfg_attr(any(test, feature = "mockall"), automock)]
 pub trait BootServices {
@@ -22,15 +22,34 @@ pub trait BootServices {
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
-    notify_function: Option<EventCallback<FFIType>>,
+    notify_function: Option<EventNotifyCallback<FFIType>>,
     notify_context: T,
   ) -> Result<Event, efi::Status> {
     unsafe {
-      self.create_event_unchecked::<c_void>(
+      self.create_event_unchecked(
         event_type,
         notify_tpl,
         mem::transmute(notify_function),
-        mem::transmute(notify_context.into_raw_mut() as *mut c_void),
+        notify_context.into_raw_mut(),
+      )
+    }
+  }
+
+  fn create_event_ex<T: EventCtxMutPtr<Ctx, FFIType = FFIType> + 'static, Ctx: Sized + 'static, FFIType: 'static>(
+    &self,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: Option<EventNotifyCallback<FFIType>>,
+    notify_context: T,
+    event_group: Option<&'static Guid>,
+  ) -> Result<Event, efi::Status> {
+    unsafe {
+      self.create_event_ex_unchecked(
+        event_type,
+        notify_tpl,
+        mem::transmute(notify_function),
+        notify_context.into_raw_mut(),
+        event_group,
       )
     }
   }
@@ -39,28 +58,28 @@ pub trait BootServices {
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
-    notify_function: Option<EventCallback<*mut T>>,
+    notify_function: Option<EventNotifyCallback<*mut T>>,
     notify_context: *mut T,
   ) -> Result<Event, efi::Status>;
 
-  fn create_event_ex(
+  unsafe fn create_event_ex_unchecked<T: Sized + 'static>(
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
-    notify_function: EventNotify,
-    notify_context: *mut c_void,
-    event_group: *const Guid,
+    notify_function: EventNotifyCallback<*mut T>,
+    notify_context: *mut T,
+    event_group: Option<&'static Guid>,
   ) -> Result<Event, efi::Status>;
 
   fn close_event(&self, event: Event) -> Result<(), efi::Status>;
 
   fn signal_event(&self, event: Event) -> Result<(), efi::Status>;
 
-  fn wait_for_event(&self, events: &[Event]) -> Result<usize, efi::Status>;
+  fn wait_for_event(&self, events: &mut [Event]) -> Result<usize, efi::Status>;
 
   fn check_event(&self, event: Event) -> Result<(), efi::Status>;
 
-  fn set_timer(&self, event: Event, timer_type: TimerDelay, trigger_time: u64) -> Result<(), efi::Status>;
+  fn set_timer(&self, event: Event, timer_type: EventTimerType, trigger_time: u64) -> Result<(), efi::Status>;
 
   /// Raises a task’s priority level and returns its previous level.
   fn raise_tpl(&self, tpl: Tpl) -> Tpl;
@@ -117,7 +136,7 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
-    notify_function: Option<extern "efiapi" fn(Event, *mut T)>,
+    notify_function: Option<EventNotifyCallback<*mut T>>,
     notify_context: *mut T,
   ) -> Result<Event, efi::Status> {
     let event = ptr::null_mut();
@@ -129,44 +148,78 @@ impl BootServices for StandardBootServices<'_> {
       event,
     );
     if status.is_error() {
-      Err(status)?;
+      Err(status)
+    } else if event.is_null() {
+      Err(efi::Status::INVALID_PARAMETER)
+    } else {
+      Ok(*event)
     }
-    if event.is_null() {}
-    if event == ptr::null_mut() {
-      Err(efi::Status::INVALID_PARAMETER)?;
-    }
-    Ok(*event)
   }
 
-  fn create_event_ex(
+  unsafe fn create_event_ex_unchecked<T: Sized + 'static>(
     &self,
-    _event_type: EventType,
-    _notify_tpl: Tpl,
-    _notify_function: EventNotify,
-    _notify_context: *mut c_void,
-    _event_group: *const Guid,
+    event_type: EventType,
+    notify_tpl: Tpl,
+    notify_function: EventNotifyCallback<*mut T>,
+    notify_context: *mut T,
+    event_group: Option<&'static Guid>,
   ) -> Result<Event, efi::Status> {
-    todo!()
+    let event = ptr::null_mut();
+    let status = (self.efi_boot_services().create_event_ex)(
+      event_type.into(),
+      notify_tpl,
+      mem::transmute(notify_function),
+      notify_context as *mut c_void,
+      event_group.map(|g| g as *const _).unwrap_or(ptr::null()),
+      event,
+    );
+    if status.is_error() {
+      Err(status)
+    } else if event.is_null() {
+      Err(efi::Status::INVALID_PARAMETER)
+    } else {
+      Ok(*event)
+    }
   }
 
-  fn close_event(&self, _event: Event) -> Result<(), efi::Status> {
-    todo!()
+  fn close_event(&self, event: Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().close_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
   }
 
-  fn signal_event(&self, _event: Event) -> Result<(), efi::Status> {
-    todo!()
+  fn signal_event(&self, event: Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().signal_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
   }
 
-  fn wait_for_event(&self, _events: &[Event]) -> Result<usize, efi::Status> {
-    todo!()
+  fn wait_for_event(&self, events: &mut [Event]) -> Result<usize, efi::Status> {
+    let index = ptr::null_mut();
+    let status = (self.efi_boot_services().wait_for_event)(events.len(), events.as_mut_ptr(), index);
+    if status.is_error() {
+      Err(status)
+    } else if index.is_null() {
+      Err(Status::INVALID_PARAMETER)
+    } else {
+      Ok(unsafe { *index })
+    }
   }
 
-  fn check_event(&self, _event: Event) -> Result<(), efi::Status> {
-    todo!()
+  fn check_event(&self, event: Event) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().check_event)(event) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
   }
 
-  fn set_timer(&self, _event: Event, _timer_type: TimerDelay, _trigger_tiem: u64) -> Result<(), efi::Status> {
-    todo!()
+  fn set_timer(&self, event: Event, timer_type: EventTimerType, trigger_time: u64) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().set_timer)(event, timer_type.into(), trigger_time) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
+    }
   }
 
   fn raise_tpl(&self, new_tpl: efi::Tpl) -> efi::Tpl {
@@ -183,7 +236,7 @@ mod test {
   use core::mem::MaybeUninit;
   use std::{os::raw::c_void, sync::atomic::AtomicI32};
 
-  use efi::TPL_APPLICATION;
+  use efi::{EventNotify, TPL_APPLICATION};
 
   use super::*;
   use event::NoContext;
@@ -242,6 +295,16 @@ mod test {
       //...
     }
 
+    extern "efiapi" fn foo_box_str_2(_e: Event, ctx: Option<Box<String>>) {
+      println!("foo_box {ctx:?}")
+      //...
+    }
+
+    extern "efiapi" fn foo_box_str_3(_e: Event, ctx: Option<&i32>) {
+      println!("foo_box {ctx:?}")
+      //...
+    }
+
     extern "efiapi" fn foo_unit(_e: Event, ctx: NoContext) {
       println!("foo_box {ctx:?}")
       //...
@@ -263,6 +326,14 @@ mod test {
     {
       let ctx = Box::new(String::from("value"));
       let _null = bs.create_event(EventType::RUNTIME, TPL_APPLICATION, Some(foo_box_str), ctx);
+    }
+    {
+      let ctx = Box::new(String::from("value"));
+      let _null = bs.create_event(EventType::RUNTIME, TPL_APPLICATION, Some(foo_box_str_2), Some(ctx));
+    }
+    {
+      static INT: i32 = 0;
+      let _null = bs.create_event(EventType::RUNTIME, TPL_APPLICATION, Some(foo_box_str_3), Some(&INT));
     }
     {
       let _null = bs.create_event(EventType::RUNTIME, TPL_APPLICATION, Some(foo_unit), ());
