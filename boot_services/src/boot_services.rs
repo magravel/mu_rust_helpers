@@ -18,19 +18,19 @@ use event::{EventCallback, EventCtxMutPtr, EventType};
 
 #[cfg_attr(any(test, feature = "mockall"), automock)]
 pub trait BootServices {
-  fn create_event<T: Sized + 'static, R: EventCtxMutPtr<T, FFIType = C> + 'static, C: 'static>(
+  fn create_event<T: EventCtxMutPtr<Ctx, FFIType = FFIType> + 'static, Ctx: Sized + 'static, FFIType: 'static>(
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
-    notify_function: Option<EventCallback<C>>,
-    notify_context: R,
+    notify_function: Option<EventCallback<FFIType>>,
+    notify_context: T,
   ) -> Result<Event, efi::Status> {
     unsafe {
-      self.create_event_unchecked::<C>(
+      self.create_event_unchecked::<c_void>(
         event_type,
         notify_tpl,
         mem::transmute(notify_function),
-        mem::transmute(notify_context.into_raw_mut()),
+        mem::transmute(notify_context.into_raw_mut() as *mut c_void),
       )
     }
   }
@@ -131,9 +131,7 @@ impl BootServices for StandardBootServices<'_> {
     if status.is_error() {
       Err(status)?;
     }
-    if event.is_null() {
-
-    }
+    if event.is_null() {}
     if event == ptr::null_mut() {
       Err(efi::Status::INVALID_PARAMETER)?;
     }
@@ -226,9 +224,7 @@ mod test {
     bs.initialize(&efi_bs);
 
     extern "efiapi" fn foo_ptr(_e: Event, ctx: *mut i32) {
-      let ctx = unsafe {
-          ctx.as_ref().unwrap()
-      };
+      let ctx = unsafe { ctx.as_ref().unwrap() };
       println!("foo_ptr {:?}", ctx)
     }
 
@@ -257,7 +253,7 @@ mod test {
       let _null = unsafe { bs.create_event_unchecked(EventType::RUNTIME, TPL_APPLICATION, Some(foo_ptr), ctx) };
     }
     {
-      static  CTX: AtomicI32 = AtomicI32::new(843);
+      static CTX: AtomicI32 = AtomicI32::new(843);
       let _null = bs.create_event(EventType::RUNTIME, TPL_APPLICATION, Some(foo_ref), &CTX);
     }
     {
