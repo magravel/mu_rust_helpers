@@ -139,20 +139,20 @@ impl BootServices for StandardBootServices<'_> {
     notify_function: Option<EventNotifyCallback<*mut T>>,
     notify_context: *mut T,
   ) -> Result<Event, efi::Status> {
-    let event = ptr::null_mut();
+    let mut event = ptr::null_mut();
     let status = (self.efi_boot_services().create_event)(
       event_type.into(),
       notify_tpl,
       mem::transmute(notify_function),
       notify_context as *mut c_void,
-      event,
+      ptr::addr_of_mut!(event),
     );
     if status.is_error() {
       Err(status)
     } else if event.is_null() {
       Err(efi::Status::INVALID_PARAMETER)
     } else {
-      Ok(*event)
+      Ok(event)
     }
   }
 
@@ -264,10 +264,13 @@ mod test {
       _notify_tpl: Tpl,
       notify_function: Option<EventNotify>,
       notify_context: *mut c_void,
-      _event: *mut Event,
+      event: *mut Event,
     ) -> efi::Status {
       if let Some(notify_function) = notify_function {
         notify_function(ptr::null_mut(), notify_context);
+      }
+      unsafe {
+        ptr::write(event, ptr::null_mut())
       }
       efi::Status::SUCCESS
     }

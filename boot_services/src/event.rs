@@ -27,6 +27,13 @@ unsafe impl<T: Sized + Unpin + Sync> EventCtxMutPtr<T> for &'static T {
   }
 }
 
+unsafe impl<T: Sized + Unpin + Sync> EventCtxMutPtr<T> for &'static mut T {
+  type FFIType = Self;
+  fn into_raw_mut(self) -> *mut T {
+    ptr::from_mut(self) as *mut T
+  }
+}
+
 unsafe impl<T: Sized + Send> EventCtxMutPtr<T> for Box<T> {
   type FFIType = Self;
   fn into_raw_mut(self) -> *mut T {

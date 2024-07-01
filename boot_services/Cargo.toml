@@ -5,13 +5,14 @@ edition = "2021"
 
 [lib]
 path = "src/boot_services.rs"
+examples = "../examples/boot_services"
 
 [features]
 default = []
 mockall = ["dep:mockall"]
 
 [dependencies]
-r-efi = { workspace=true }
+r-efi = { workspace = true }
 mockall = { version = "*", optional = true }
 
 [dev-dependencies]

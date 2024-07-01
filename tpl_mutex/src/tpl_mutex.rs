@@ -7,10 +7,10 @@ use core::{
 
 use r_efi::efi;
 
-use boot_services::BootServices;
+use boot_services::{BootServices, StandardBootServices};
 
 /// Type use for mutual exclusion of data across Tpl (task priority level)
-pub struct TplMutex<'a, T: ?Sized, B: BootServices> {
+pub struct TplMutex<'a, T: ?Sized, B: BootServices = StandardBootServices<'a>> {
   boot_services: &'a B,
   tpl_lock_level: efi::Tpl,
   lock: AtomicBool,
@@ -106,7 +106,6 @@ unsafe impl<T: ?Sized + Send, B: BootServices> Sync for TplMutex<'_, T, B> {}
 unsafe impl<T: ?Sized + Send, B: BootServices> Send for TplMutex<'_, T, B> {}
 
 unsafe impl<T: ?Sized + Sync, B: BootServices> Sync for TplMutexGuard<'_, T, B> {}
-unsafe impl<T: ?Sized + Send, B: BootServices> Send for TplMutexGuard<'_, T, B> {}
 
 #[cfg(test)]
 mod test {
