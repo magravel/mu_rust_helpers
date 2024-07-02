@@ -1,3 +1,7 @@
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
+
 use core::{
   cell::UnsafeCell,
   fmt::{self, Debug, Display},

@@ -1,3 +1,6 @@
+#![cfg_attr(all(not(test), not(feature = "mockall")), no_std)]
+extern crate alloc;
+
 pub mod event;
 pub mod tpl;
 
@@ -7,12 +10,11 @@ use mockall::automock;
 use core::{
   ffi::c_void,
   marker::PhantomData,
-  mem,
+  mem::{self, MaybeUninit},
   option::Option,
   ptr,
   sync::atomic::{AtomicPtr, Ordering},
 };
-use std::mem::MaybeUninit;
 
 use r_efi::efi;
 
