@@ -4,6 +4,7 @@ use core::{
   pin::Pin,
   ptr,
 };
+use alloc::boxed::Box;
 
 use r_efi::efi;
 
@@ -84,7 +85,7 @@ impl Into<u32> for EventTimerType {
   }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct EventType(u32);
 

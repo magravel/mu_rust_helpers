@@ -1,4 +1,7 @@
+extern crate alloc;
+
 use core::{ffi::c_void, mem::MaybeUninit, ptr};
+use alloc::boxed::Box;
 
 use boot_services::{event::NoContext, tpl::Tpl};
 use r_efi::efi;
