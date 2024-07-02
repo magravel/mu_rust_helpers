@@ -12,6 +12,7 @@ use core::{
   ptr,
   sync::atomic::{AtomicPtr, Ordering},
 };
+use std::mem::MaybeUninit;
 
 use r_efi::efi;
 
@@ -141,20 +142,18 @@ impl BootServices for StandardBootServices<'_> {
     notify_function: Option<EventNotifyCallback<*mut T>>,
     notify_context: *mut T,
   ) -> Result<efi::Event, efi::Status> {
-    let mut event = ptr::null_mut();
+    let mut event = MaybeUninit::zeroed();
     let status = (self.efi_boot_services().create_event)(
       event_type.into(),
       notify_tpl.into(),
       mem::transmute(notify_function),
       notify_context as *mut c_void,
-      ptr::addr_of_mut!(event),
+      event.as_mut_ptr(),
     );
     if status.is_error() {
       Err(status)
-    } else if event.is_null() {
-      Err(efi::Status::INVALID_PARAMETER)
     } else {
-      Ok(event)
+      Ok(event.assume_init())
     }
   }
 
@@ -237,8 +236,6 @@ impl BootServices for StandardBootServices<'_> {
 mod test {
   use super::*;
   use core::mem::MaybeUninit;
-  use event::NoContext;
-  use std::{os::raw::c_void, sync::atomic::AtomicI32};
 
   #[test]
   #[should_panic(expected = "Boot services has not been initialize.")]
@@ -257,86 +254,46 @@ mod test {
   }
 
   #[test]
-  fn t() {
+  fn test_create_event() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event = efi_create_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn notify_callback(_e: efi::Event, ctx: Box<i32>) {
+      assert_eq!(10, *ctx)
+    }
+
     extern "efiapi" fn efi_create_event(
-      _event_type: u32,
-      _notify_tpl: efi::Tpl,
+      event_type: u32,
+      notify_tpl: efi::Tpl,
       notify_function: Option<efi::EventNotify>,
       notify_context: *mut c_void,
       event: *mut efi::Event,
     ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(notify_callback as *const fn(), unsafe { mem::transmute(notify_function) });
+      assert_ne!(ptr::null_mut(), notify_context);
+      assert_ne!(ptr::null_mut(), event);
+
       if let Some(notify_function) = notify_function {
         notify_function(ptr::null_mut(), notify_context);
       }
-      unsafe { ptr::write(event, ptr::null_mut()) }
       efi::Status::SUCCESS
     }
-    let efi_bs = unsafe { MaybeUninit::<efi::BootServices>::zeroed().as_mut_ptr().as_mut().unwrap() };
-    efi_bs.create_event = efi_create_event;
-    let bs = StandardBootServices::new_uninit();
-    bs.initialize(&efi_bs);
 
-    extern "efiapi" fn foo_ptr(_e: efi::Event, ctx: *mut i32) {
-      let ctx = unsafe { ctx.as_ref().unwrap() };
-      println!("foo_ptr {:?}", ctx)
-    }
+    let ctx = Box::new(10);
+    let status = BOOT_SERVICE.create_event(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
+      Some(notify_callback),
+      ctx,
+    );
 
-    extern "efiapi" fn foo_ref(_e: efi::Event, ctx: &'static AtomicI32) {
-      println!("foo_ref {:?}", ctx.load(Ordering::Relaxed))
-    }
-
-    extern "efiapi" fn foo_box(_e: efi::Event, ctx: Box<i32>) {
-      println!("foo_box {ctx:?}")
-      //...
-    }
-
-    extern "efiapi" fn foo_box_str(_e: efi::Event, ctx: Box<String>) {
-      println!("foo_box {ctx:?}")
-      //...
-    }
-
-    extern "efiapi" fn foo_box_str_2(_e: efi::Event, ctx: Option<Box<String>>) {
-      println!("foo_box {ctx:?}")
-      //...
-    }
-
-    extern "efiapi" fn foo_box_str_3(_e: efi::Event, ctx: Option<&i32>) {
-      println!("foo_box {ctx:?}")
-      //...
-    }
-
-    extern "efiapi" fn foo_unit(_e: efi::Event, ctx: NoContext) {
-      println!("foo_box {ctx:?}")
-      //...
-    }
-
-    {
-      let ctx = Box::new(222222);
-      let ctx = Box::into_raw(ctx);
-      let _null = unsafe { bs.create_event_unchecked(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_ptr), ctx) };
-    }
-    {
-      static CTX: AtomicI32 = AtomicI32::new(843);
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_ref), &CTX);
-    }
-    {
-      let ctx = Box::new(348379);
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_box), ctx);
-    }
-    {
-      let ctx = Box::new(String::from("value"));
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_box_str), ctx);
-    }
-    {
-      let ctx = Box::new(String::from("value"));
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_box_str_2), Some(ctx));
-    }
-    {
-      static INT: i32 = 0;
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_box_str_3), Some(&INT));
-    }
-    {
-      let _null = bs.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(foo_unit), ());
-    }
+    assert!(matches!(status, Ok(_)));
   }
 }

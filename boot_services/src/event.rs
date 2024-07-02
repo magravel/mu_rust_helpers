@@ -1,9 +1,13 @@
-use core::ops;
-use std::{ffi::c_void, ops::Deref, pin::Pin, ptr};
+use core::{
+  ffi::c_void,
+  ops::{self, Deref},
+  pin::Pin,
+  ptr,
+};
 
-use r_efi::efi::{Event, EVT_NOTIFY_SIGNAL, EVT_NOTIFY_WAIT, EVT_RUNTIME, EVT_SIGNAL_EXIT_BOOT_SERVICES, EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE, EVT_TIMER, TIMER_CANCEL, TIMER_PERIODIC, TIMER_RELATIVE};
+use r_efi::efi;
 
-pub type EventNotifyCallback<T> = extern "efiapi" fn(Event, T);
+pub type EventNotifyCallback<T> = extern "efiapi" fn(efi::Event, T);
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
@@ -67,17 +71,17 @@ unsafe impl EventCtxMutPtr<c_void> for () {
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 pub enum EventTimerType {
-  Cancel = TIMER_CANCEL,
-  Periodic = TIMER_PERIODIC,
-  Relative = TIMER_RELATIVE,
+  Cancel = efi::TIMER_CANCEL,
+  Periodic = efi::TIMER_PERIODIC,
+  Relative = efi::TIMER_RELATIVE,
 }
 
 impl Into<u32> for EventTimerType {
-    fn into(self) -> u32 {
-      match self {
-         t => t as u32  
-      }
+  fn into(self) -> u32 {
+    match self {
+      t => t as u32,
     }
+  }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -85,17 +89,17 @@ impl Into<u32> for EventTimerType {
 pub struct EventType(u32);
 
 impl EventType {
-  pub const TIMER: EventType = EventType(EVT_TIMER);
+  pub const TIMER: EventType = EventType(efi::EVT_TIMER);
   ///
-  pub const RUNTIME: EventType = EventType(EVT_RUNTIME);
+  pub const RUNTIME: EventType = EventType(efi::EVT_RUNTIME);
   ///
-  pub const NOTIFY_WAIT: EventType = EventType(EVT_NOTIFY_WAIT);
+  pub const NOTIFY_WAIT: EventType = EventType(efi::EVT_NOTIFY_WAIT);
   ///
-  pub const NOTIFY_SIGNAL: EventType = EventType(EVT_NOTIFY_SIGNAL);
+  pub const NOTIFY_SIGNAL: EventType = EventType(efi::EVT_NOTIFY_SIGNAL);
   ///
-  pub const SIGNAL_EXIT_BOOT_SERVICES: EventType = EventType(EVT_SIGNAL_EXIT_BOOT_SERVICES);
+  pub const SIGNAL_EXIT_BOOT_SERVICES: EventType = EventType(efi::EVT_SIGNAL_EXIT_BOOT_SERVICES);
   ///
-  pub const SIGNAL_VIRTUAL_ADDRESS_CHANGE: EventType = EventType(EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE);
+  pub const SIGNAL_VIRTUAL_ADDRESS_CHANGE: EventType = EventType(efi::EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE);
 
   pub fn is(&self, event_type: EventType) -> bool {
     self.0 & event_type.0 == self.0
