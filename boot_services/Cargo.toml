@@ -5,7 +5,6 @@ edition = "2021"
 
 [lib]
 path = "src/boot_services.rs"
-examples = "../examples/boot_services"
 
 [features]
 default = []

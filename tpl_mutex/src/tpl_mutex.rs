@@ -5,14 +5,12 @@ use core::{
   sync::atomic::{AtomicBool, Ordering},
 };
 
-use r_efi::efi;
-
-use boot_services::{BootServices, StandardBootServices};
+use boot_services::{BootServices, StandardBootServices, tpl::Tpl};
 
 /// Type use for mutual exclusion of data across Tpl (task priority level)
 pub struct TplMutex<'a, T: ?Sized, B: BootServices = StandardBootServices<'a>> {
   boot_services: &'a B,
-  tpl_lock_level: efi::Tpl,
+  tpl_lock_level: Tpl,
   lock: AtomicBool,
   data: UnsafeCell<T>,
 }
@@ -21,12 +19,12 @@ pub struct TplMutex<'a, T: ?Sized, B: BootServices = StandardBootServices<'a>> {
 #[must_use = "if unused the TplMutex will immediately unlock"]
 pub struct TplMutexGuard<'a, T: ?Sized, B: BootServices> {
   tpl_mutex: &'a TplMutex<'a, T, B>,
-  release_tpl: efi::Tpl,
+  release_tpl: Tpl,
 }
 
 impl<'a, T, B: BootServices> TplMutex<'a, T, B> {
   /// Create an new TplMutex in an unlock state.
-  pub const fn new(boot_services: &'a B, tpl_lock_level: efi::Tpl, data: T) -> Self {
+  pub const fn new(boot_services: &'a B, tpl_lock_level: Tpl, data: T) -> Self {
     Self { boot_services, tpl_lock_level, lock: AtomicBool::new(false), data: UnsafeCell::new(data) }
   }
 }
@@ -43,7 +41,7 @@ impl<'a, T: ?Sized, B: BootServices> TplMutex<'a, T, B> {
   /// Attempt to lock the mutex and return [TplMutexGuard] if the mutex was not locked.
   ///
   /// # Errors
-  /// If the mutex is already lock, then this call will return [Result::Err()].
+  /// If the mutex is already lock, then this call will return [Err].
   pub fn try_lock(&self) -> Result<TplMutexGuard<T, B>, ()> {
     self
       .lock
@@ -112,7 +110,6 @@ mod test {
   use super::*;
   use boot_services::MockBootServices;
   use mockall::predicate::*;
-  use r_efi::efi::{TPL_APPLICATION, TPL_NOTIFY};
 
   #[derive(Debug, Default)]
   struct TestStruct {
@@ -126,15 +123,15 @@ mod test {
 
   fn boot_services() -> MockBootServices {
     let mut boot_services = MockBootServices::new();
-    boot_services.expect_raise_tpl().with(eq(TPL_NOTIFY)).return_const(TPL_APPLICATION);
-    boot_services.expect_restore_tpl().with(eq(TPL_APPLICATION)).return_const(());
+    boot_services.expect_raise_tpl().with(eq(Tpl::NOTIFY)).return_const(Tpl::APPLICATION);
+    boot_services.expect_restore_tpl().with(eq(Tpl::APPLICATION)).return_const(());
     boot_services
   }
 
   #[test]
   fn test_try_lock() {
     let boot_services = boot_services();
-    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, 0);
+    let mutex = TplMutex::new(&boot_services, Tpl::NOTIFY, 0);
 
     let guard_result = mutex.try_lock();
     assert!(matches!(guard_result, Ok(_)), "First lock should work.");
@@ -152,7 +149,7 @@ mod test {
   #[should_panic(expected = "Re-entrant lock")]
   fn test_that_locking_a_locked_mutex_with_lock_fn_should_panic() {
     let boot_services = boot_services();
-    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
+    let mutex = TplMutex::new(&boot_services, Tpl::NOTIFY, TestStruct::default());
     let guard_result = mutex.try_lock();
     assert!(matches!(guard_result, Ok(_)));
     let _ = mutex.lock();
@@ -161,7 +158,7 @@ mod test {
   #[test]
   fn test_debug_output_for_tpl_mutex() {
     let boot_services = boot_services();
-    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
+    let mutex = TplMutex::new(&boot_services, Tpl::NOTIFY, TestStruct::default());
     assert_eq!("TplMutex { data: TestStruct { field: 0 }, .. }", format!("{mutex:?}"));
     let _guard = mutex.lock();
     assert_eq!("TplMutex { data: <locked>, .. }", format!("{mutex:?}"));
@@ -170,7 +167,7 @@ mod test {
   #[test]
   fn test_display_and_debug_output_for_tpl_mutex_guard() {
     let boot_services = boot_services();
-    let mutex = TplMutex::new(&boot_services, TPL_NOTIFY, TestStruct::default());
+    let mutex = TplMutex::new(&boot_services, Tpl::NOTIFY, TestStruct::default());
     let guard = mutex.lock();
     assert_eq!("0", format!("{guard}"));
     assert_eq!("TestStruct { field: 0 }", format!("{guard:?}"));

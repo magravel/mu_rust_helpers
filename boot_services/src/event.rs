@@ -1,7 +1,7 @@
 use core::ops;
 use std::{ffi::c_void, ops::Deref, pin::Pin, ptr};
 
-use r_efi::efi::{Event, TIMER_CANCEL, TIMER_PERIODIC, TIMER_RELATIVE};
+use r_efi::efi::{Event, EVT_NOTIFY_SIGNAL, EVT_NOTIFY_WAIT, EVT_RUNTIME, EVT_SIGNAL_EXIT_BOOT_SERVICES, EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE, EVT_TIMER, TIMER_CANCEL, TIMER_PERIODIC, TIMER_RELATIVE};
 
 pub type EventNotifyCallback<T> = extern "efiapi" fn(Event, T);
 
@@ -80,23 +80,22 @@ impl Into<u32> for EventTimerType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(transparent)]
 pub struct EventType(u32);
 
 impl EventType {
+  pub const TIMER: EventType = EventType(EVT_TIMER);
   ///
-  pub const TIMER: EventType = EventType(0x80000000u32);
+  pub const RUNTIME: EventType = EventType(EVT_RUNTIME);
   ///
-  pub const RUNTIME: EventType = EventType(0x40000000u32);
+  pub const NOTIFY_WAIT: EventType = EventType(EVT_NOTIFY_WAIT);
   ///
-  pub const NOTIFY_WAIT: EventType = EventType(0x00000100u32);
+  pub const NOTIFY_SIGNAL: EventType = EventType(EVT_NOTIFY_SIGNAL);
   ///
-  pub const NOTIFY_SIGNAL: EventType = EventType(0x00000200u32);
+  pub const SIGNAL_EXIT_BOOT_SERVICES: EventType = EventType(EVT_SIGNAL_EXIT_BOOT_SERVICES);
   ///
-  pub const SIGNAL_EXIT_BOOT_SERVICES: EventType = EventType(0x00000201u32);
-  ///
-  pub const SIGNAL_VIRTUAL_ADDRESS_CHANGE: EventType = EventType(0x60000202u32);
+  pub const SIGNAL_VIRTUAL_ADDRESS_CHANGE: EventType = EventType(EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE);
 
   pub fn is(&self, event_type: EventType) -> bool {
     self.0 & event_type.0 == self.0
