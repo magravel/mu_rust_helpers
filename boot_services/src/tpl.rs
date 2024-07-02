@@ -22,17 +22,3 @@ impl Into<Tpl> for usize {
     Tpl(self)
   }
 }
-
-#[cfg(test)]
-mod test {
-  use super::*;
-
-  #[test]
-  fn t() {
-    fn foo(tpl: efi::Tpl) {
-      println!("{tpl:?}")
-    }
-    let tpl = Tpl::APPLICATION;
-    foo(tpl.into());
-  }
-}

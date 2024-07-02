@@ -9,7 +9,7 @@ use core::{
   sync::atomic::{AtomicBool, Ordering},
 };
 
-use boot_services::{BootServices, StandardBootServices, tpl::Tpl};
+use boot_services::{tpl::Tpl, BootServices, StandardBootServices};
 
 /// Type use for mutual exclusion of data across Tpl (task priority level)
 pub struct TplMutex<'a, T: ?Sized, B: BootServices = StandardBootServices<'a>> {

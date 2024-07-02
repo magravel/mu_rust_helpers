@@ -1,13 +1,18 @@
 extern crate alloc;
 
-use core::{ffi::c_void, mem::MaybeUninit, ptr};
 use alloc::boxed::Box;
+use core::{ffi::c_void, mem::MaybeUninit, ptr};
 
-use boot_services::{event::NoContext, tpl::Tpl};
+use mu_rust_helpers::{
+  boot_services::{
+    event::{EventType, NoContext},
+    tpl::Tpl,
+    BootServices, StandardBootServices,
+  },
+  tpl_mutex::TplMutex,
+};
+
 use r_efi::efi;
-
-use mu_rust_helpers::boot_services::{event::EventType, BootServices, StandardBootServices};
-use tpl_mutex::TplMutex;
 
 #[derive(Debug)]
 struct MyContext {
@@ -41,7 +46,7 @@ fn main() {
     bs.assume_init()
   };
   BOOT_SERVICE.initialize(&efi_boot_services);
-  
+
   let ctx = Box::new(MyContext {
     _some_immutable_state: 0,
     _some_other_immutable_state: ptr::null_mut(),

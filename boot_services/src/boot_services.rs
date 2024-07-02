@@ -322,12 +322,7 @@ mod test {
       efi::Status::SUCCESS
     }
 
-    let status = BOOT_SERVICE.create_event(
-      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
-      Tpl::APPLICATION,
-      None,
-      (),
-    );
+    let status = BOOT_SERVICE.create_event(EventType::RUNTIME | EventType::NOTIFY_SIGNAL, Tpl::APPLICATION, None, ());
 
     assert!(matches!(status, Ok(_)));
   }

@@ -1,10 +1,10 @@
+use alloc::boxed::Box;
 use core::{
   ffi::c_void,
   ops::{self, Deref},
   pin::Pin,
   ptr,
 };
-use alloc::boxed::Box;
 
 use r_efi::efi;
 
@@ -124,29 +124,5 @@ impl ops::BitOrAssign for EventType {
 impl Into<u32> for EventType {
   fn into(self) -> u32 {
     self.0
-  }
-}
-
-#[cfg(test)]
-mod test {
-  use super::EventType;
-
-  #[test]
-  fn t() {
-    for (t, s) in &[
-      (EventType::TIMER, "TIMER"),
-      (EventType::RUNTIME, "RUNTIME"),
-      (EventType::NOTIFY_WAIT, "NOTIFY_WAIT"),
-      (EventType::NOTIFY_SIGNAL, "NOTIFY_SIGNAL"),
-      (EventType::SIGNAL_EXIT_BOOT_SERVICES, "SIGNAL_EXIT_BOOT_SERVICES"),
-      (EventType::SIGNAL_VIRTUAL_ADDRESS_CHANGE, "SIGNAL_VIRTUAL_ADDRESS_CHANGE"),
-    ] {
-      println!("{:032b} {}", t.0, s);
-    }
-
-    println!();
-    let _a = EventType::RUNTIME | EventType::SIGNAL_VIRTUAL_ADDRESS_CHANGE;
-    let a = EventType::TIMER | EventType::RUNTIME;
-    println!("{:032b}", a.0);
   }
 }
