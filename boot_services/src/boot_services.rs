@@ -298,6 +298,41 @@ mod test {
   }
 
   #[test]
+  fn test_create_event_no_notify() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event = efi_create_event;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_create_event(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *mut c_void,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(None, notify_function);
+      assert_eq!(ptr::null_mut(), notify_context);
+      assert_ne!(ptr::null_mut(), event);
+      efi::Status::SUCCESS
+    }
+
+    let status = BOOT_SERVICE.create_event(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
+      None,
+      (),
+    );
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
   fn test_create_event_ex() {
     static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
     let efi_boot_services = unsafe {
@@ -323,7 +358,7 @@ mod test {
       assert_eq!(efi::TPL_APPLICATION, notify_tpl);
       assert_eq!(notify_callback as *const fn(), unsafe { mem::transmute(notify_function) });
       assert_ne!(ptr::null(), notify_context);
-      assert_ne!(ptr::addr_of!(GUID), event_group);
+      assert_eq!(ptr::addr_of!(GUID), event_group);
       assert_ne!(ptr::null_mut(), event);
 
       if let Some(notify_function) = notify_function {
@@ -338,7 +373,45 @@ mod test {
       Tpl::APPLICATION,
       Some(notify_callback),
       ctx,
+      Some(&GUID),
+    );
+
+    assert!(matches!(status, Ok(_)));
+  }
+
+  #[test]
+  fn test_create_event_ex_no_notify() {
+    static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+    let efi_boot_services = unsafe {
+      let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
+      bs.assume_init_mut().create_event_ex = efi_create_event_ex;
+      bs.assume_init()
+    };
+    BOOT_SERVICE.initialize(&efi_boot_services);
+
+    extern "efiapi" fn efi_create_event_ex(
+      event_type: u32,
+      notify_tpl: efi::Tpl,
+      notify_function: Option<efi::EventNotify>,
+      notify_context: *const c_void,
+      event_group: *const efi::Guid,
+      event: *mut efi::Event,
+    ) -> efi::Status {
+      assert_eq!(efi::EVT_RUNTIME | efi::EVT_NOTIFY_SIGNAL, event_type);
+      assert_eq!(efi::TPL_APPLICATION, notify_tpl);
+      assert_eq!(None, notify_function);
+      assert_eq!(ptr::null(), notify_context);
+      assert_eq!(ptr::addr_of!(GUID), event_group);
+      assert_ne!(ptr::null_mut(), event);
+      efi::Status::SUCCESS
+    }
+    static GUID: efi::Guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
+    let status = BOOT_SERVICE.create_event_ex(
+      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+      Tpl::APPLICATION,
       None,
+      (),
+      Some(&GUID),
     );
 
     assert!(matches!(status, Ok(_)));
