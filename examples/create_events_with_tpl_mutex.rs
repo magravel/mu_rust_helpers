@@ -4,11 +4,7 @@ use alloc::boxed::Box;
 use core::{ffi::c_void, mem::MaybeUninit, ptr};
 
 use mu_rust_helpers::{
-  boot_services::{
-    event::{EventType, NoContext},
-    tpl::Tpl,
-    BootServices, StandardBootServices,
-  },
+  boot_services::{event::EventType, tpl::Tpl, BootServices, StandardBootServices},
   tpl_mutex::TplMutex,
 };
 
@@ -32,7 +28,7 @@ extern "efiapi" fn event_notify_callback_tpl_mutex_2(_event: efi::Event, context
   println!("{context:?}")
 }
 
-extern "efiapi" fn event_notify_callback_void(_event: efi::Event, context: NoContext) {
+extern "efiapi" fn event_notify_callback_void(_event: efi::Event, context: Box<()>) {
   println!("{context:?}")
 }
 
@@ -54,7 +50,7 @@ fn main() {
     _some_other_mutable_state: TplMutex::new(&BOOT_SERVICE, Tpl::APPLICATION, String::new()),
   });
 
-  let ctx = Box::leak::<'static>(ctx) as &_;
+  let ctx = Box::leak::<'static>(ctx) as &MyContext;
 
   match BOOT_SERVICE.create_event(
     EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
@@ -76,7 +72,8 @@ fn main() {
     Err(_status) => (),
   };
 
-  match BOOT_SERVICE.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(event_notify_callback_void), ()) {
+  match BOOT_SERVICE.create_event(EventType::RUNTIME, Tpl::APPLICATION, Some(event_notify_callback_void), Box::new(()))
+  {
     Ok(_event) => (),
     Err(_status) => (),
   };
