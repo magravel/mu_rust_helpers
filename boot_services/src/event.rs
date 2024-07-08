@@ -17,46 +17,44 @@ pub type EventNotifyCallback<T> = extern "efiapi" fn(efi::Event, T);
 /// <div class="warning">
 ///
 /// This should be implemented **only** on type that have the same memory layout as `*mut T` and that can be recreated with [`core::mem::transmute`].
-/// 
+///
 /// </div>
 pub unsafe trait EventCtxMutPtr {
   /// The contntext type. It need to be size to prevent any fat pointer wich does not have `*mut T` memory layout.
-  type Ctx: Sized;
+  type Ctx: Sized + 'static;
   /// This function convert the type into its raw form.
   fn into_raw_mut(self) -> *mut Self::Ctx;
 }
 
-unsafe impl<T: Sized + Sync> EventCtxMutPtr for &'static T {
+unsafe impl<T: Sized + Sync + 'static> EventCtxMutPtr for &'static T {
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     ptr::from_ref(self) as *mut _
   }
 }
 
-unsafe impl<T: Sized + Sync> EventCtxMutPtr for &'static mut T {
+unsafe impl<T: Sized + Sync + 'static> EventCtxMutPtr for &'static mut T {
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     ptr::from_mut(self) as *mut _
   }
 }
 
-unsafe impl<T: Sized> EventCtxMutPtr for Box<T> {
+unsafe impl<T: Sized + 'static> EventCtxMutPtr for Box<T> {
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     ptr::from_mut(Box::leak(self))
   }
 }
 
-unsafe impl<C: EventCtxMutPtr<Ctx = T> + 'static, T: Sized + 'static> EventCtxMutPtr for Option<C> {
+unsafe impl<C: EventCtxMutPtr<Ctx = T>, T: Sized + 'static> EventCtxMutPtr for Option<C> {
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     self.map(C::into_raw_mut).unwrap_or(ptr::null_mut())
   }
 }
 
-unsafe impl<C: EventCtxMutPtr<Ctx = T> + 'static + Deref<Target = T>, T: Sized + Unpin + 'static> EventCtxMutPtr
-  for Pin<C>
-{
+unsafe impl<C: EventCtxMutPtr<Ctx = T> + Deref<Target = T>, T: Sized + Unpin + 'static> EventCtxMutPtr for Pin<C> {
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     C::into_raw_mut(Pin::into_inner(self))
