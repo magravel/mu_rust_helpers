@@ -2,6 +2,7 @@
 
 use alloc::boxed::Box;
 use core::{
+  mem::ManuallyDrop,
   ops::{self, Deref},
   pin::Pin,
   ptr,
@@ -51,6 +52,13 @@ unsafe impl<C: EventCtxMutPtr<Ctx = T>, T: Sized + 'static> EventCtxMutPtr for O
   type Ctx = T;
   fn into_raw_mut(self) -> *mut Self::Ctx {
     self.map(C::into_raw_mut).unwrap_or(ptr::null_mut())
+  }
+}
+
+unsafe impl<C: EventCtxMutPtr<Ctx = T>, T: Sized + 'static> EventCtxMutPtr for ManuallyDrop<C> {
+  type Ctx = T;
+  fn into_raw_mut(self) -> *mut Self::Ctx {
+    C::into_raw_mut(ManuallyDrop::into_inner(self))
   }
 }
 

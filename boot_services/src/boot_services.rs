@@ -30,6 +30,45 @@ pub trait BootServices {
   /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createevent" target="_blank">
   ///   7.1.1. EFI_BOOT_SERVICES.CreateEvent()
   /// </a>
+  ///
+  /// # Examples
+  ///  
+  /// ```
+  /// #  static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
+  /// #  let efi_boot_services = unsafe {
+  /// #    let mut bs = core::mem::MaybeUninit::<efi::BootServices>::zeroed();
+  /// #    bs.assume_init_mut().create_event = efi_create_event;
+  /// #    bs.assume_init()
+  /// #  };
+  /// #  BOOT_SERVICE.initialize(&efi_boot_services);
+  /// #
+  /// #  extern "efiapi" fn efi_create_event(
+  /// #    event_type: u32,
+  /// #    notify_tpl: r_efi::efi::Tpl,
+  /// #    notify_function: Option<r_efi::efi::EventNotify>,
+  /// #    notify_context: *mut core::ffi::c_void,
+  /// #    event: *mut r_efi::efi::Event,
+  /// #  ) -> efi::Status {
+  /// #    r_efi::efi::Status::SUCCESS
+  /// #  }
+  ///
+  /// use boot_services::{StandardBootServices, BootServices, event::EventType, tpl::Tpl};
+  ///
+  /// // static BOOT_SERVICE: StandardBootServices = ...;
+  ///
+  /// extern "efiapi" fn notify_callback(_e: efi::Event, ctx: Box<i32>) {
+  ///   // ...
+  /// }
+  ///
+  /// let ctx = Box::new(10);
+  ///
+  /// let status = BOOT_SERVICE.create_event(
+  ///   EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
+  ///   Tpl::APPLICATION,
+  ///   Some(notify_callback),
+  ///   ctx,
+  /// );
+  /// ```
   fn create_event<T: EventCtxMutPtr<Ctx = Ctx> + 'static, Ctx: Sized + 'static>(
     &self,
     event_type: EventType,
