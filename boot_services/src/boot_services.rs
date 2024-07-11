@@ -1,7 +1,9 @@
 #![cfg_attr(all(not(test), not(feature = "mockall")), no_std)]
 extern crate alloc;
 
+pub mod allocation;
 pub mod event;
+pub mod protocol_handler;
 pub mod tpl;
 
 #[cfg(any(test, feature = "mockall"))]

@@ -129,10 +129,6 @@ impl EventType {
   /// The event is to be notified by the system when `SetVirtualAddressMap()` is performed.
   /// This event type is a composite of [`Self::NOTIFY_SIGNAL`], [`Self::RUNTIME`], and [`Self::RUNTIME`] and should not be combined with any other event types.
   pub const SIGNAL_VIRTUAL_ADDRESS_CHANGE: EventType = EventType(efi::EVT_SIGNAL_VIRTUAL_ADDRESS_CHANGE);
-
-  pub fn is(&self, event_type: EventType) -> bool {
-    self.0 & event_type.0 == self.0
-  }
 }
 
 impl ops::BitOr for EventType {
