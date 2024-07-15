@@ -11,7 +11,6 @@ use crate::{allocation::MemoryType, BootServices};
 pub struct BootServicesBox<'a, T: ?Sized, B: BootServices> {
   boot_services: &'a B,
   ptr: *mut T,
-  size: usize,
 }
 
 impl<'a, T, B: BootServices> BootServicesBox<'a, T, B> {
@@ -19,20 +18,18 @@ impl<'a, T, B: BootServices> BootServicesBox<'a, T, B> {
     let size = mem::size_of_val(&value);
     let ptr = boot_services.allocate_pool(memory_type, size).unwrap() as *mut T;
     unsafe { ptr::write(ptr, value) };
-    Self { boot_services, ptr, size }
+    Self { boot_services, ptr }
   }
 
   pub unsafe fn from_raw(ptr: *mut T, boot_services: &'a B) -> Self {
-    let size = mem::size_of::<T>();
-    Self { boot_services, ptr, size }
+    Self { boot_services, ptr }
   }
 }
 
 impl<'a, T, B: BootServices> BootServicesBox<'a, [T], B> {
   pub unsafe fn from_raw_parts(ptr: *mut T, len: usize, boot_services: &'a B) -> Self {
-    let size = mem::size_of::<T>() * len;
     let ptr = slice::from_raw_parts_mut(ptr, len) as *mut [T];
-    Self { boot_services, ptr, size }
+    Self { boot_services, ptr }
   }
 }
 

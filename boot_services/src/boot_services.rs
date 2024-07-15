@@ -13,13 +13,12 @@ pub mod global_allocator;
 pub mod protocol_handler;
 pub mod tpl;
 
-use alloc::boxed::Box;
 use core::{
   ffi::c_void,
   marker::PhantomData,
   mem::{self, MaybeUninit},
   option::Option,
-  ptr::{self, NonNull},
+  ptr,
   slice,
   sync::atomic::{AtomicPtr, Ordering},
 };
