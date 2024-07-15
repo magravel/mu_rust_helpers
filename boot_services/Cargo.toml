@@ -8,6 +8,7 @@ path = "src/boot_services.rs"
 
 [features]
 default = []
+global_allocator = []
 mockall = ["dep:mockall"]
 
 [dependencies]

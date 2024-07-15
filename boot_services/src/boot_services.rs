@@ -1,17 +1,18 @@
 #![cfg_attr(all(not(test), not(feature = "mockall")), no_std)]
 
-use boxed::BootServicesBox;
-#[cfg(any(test, feature = "mockall"))]
-use mockall::automock;
+#[cfg(feature = "global_allocator")]
+pub mod global_allocator;
 
 extern crate alloc;
 
 pub mod allocation;
 pub mod boxed;
 pub mod event;
-pub mod global_allocator;
 pub mod protocol_handler;
 pub mod tpl;
+
+#[cfg(any(test, feature = "mockall"))]
+use mockall::automock;
 
 use core::{
   ffi::c_void,
@@ -25,16 +26,10 @@ use core::{
 use r_efi::efi;
 
 use allocation::{AllocType, MemoryMap, MemoryType};
+use boxed::BootServicesBox;
 use event::{EventCtxMutPtr, EventNotifyCallback, EventTimerType, EventType};
 use protocol_handler::{HandleSearchType, Protocol, Registration};
 use tpl::{Tpl, TplGuard};
-
-pub static GLOBAL_BOOT_SERVICES: StandardBootServices = StandardBootServices::new_uninit();
-
-#[cfg(no_std)]
-#[global_allocator]
-static BOOT_SERVICE_ALLOCATOR: BootServicesGlobalAllocator<StandardBootServices> =
-  BootServicesGlobalAllocator(&GLOBAL_BOOT_SERVICES);
 
 /// This is the boot services used in the UEFI.
 /// it wraps an atomic ptr to [`efi::BootServices`]
@@ -275,7 +270,7 @@ pub trait BootServices: Sized {
     interface: Option<*mut c_void>,
   ) -> Result<efi::Handle, efi::Status>;
 
-  unsafe fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
+  fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
     protocol: P,
@@ -386,9 +381,7 @@ pub trait BootServices: Sized {
     &'a self,
     handle: efi::Handle,
     protocol: &efi::Guid,
-  ) -> Result<BootServicesBox<'a, [efi::OpenProtocolInformationEntry], Self>, efi::Status>
-  where
-    Self: Sized;
+  ) -> Result<BootServicesBox<'a, [efi::OpenProtocolInformationEntry], Self>, efi::Status>;
 
   unsafe fn connect_controller(
     &self,
@@ -408,16 +401,12 @@ pub trait BootServices: Sized {
   fn protocols_per_handle<'a>(
     &'a self,
     handle: efi::Handle,
-  ) -> Result<BootServicesBox<'a, [efi::Guid], Self>, efi::Status>
-  where
-    Self: Sized;
+  ) -> Result<BootServicesBox<'a, [efi::Guid], Self>, efi::Status>;
 
   fn locate_handle_buffer<'a>(
     &'a self,
     search_type: HandleSearchType,
-  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status>
-  where
-    Self: Sized;
+  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status>;
 
   fn locate_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -705,9 +694,9 @@ impl BootServices for StandardBootServices<'_> {
       buffer as *mut efi::Handle,
     ) {
       s if s.is_error() => Err(s),
-      _ => {
-        Ok(unsafe { BootServicesBox::from_raw_parts(buffer as *mut _, buffer_size / mem::size_of::<efi::Handle>(), &self) })
-      }
+      _ => Ok(unsafe {
+        BootServicesBox::from_raw_parts(buffer as *mut _, buffer_size / mem::size_of::<efi::Handle>(), &self)
+      }),
     }
   }
 

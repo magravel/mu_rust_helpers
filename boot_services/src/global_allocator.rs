@@ -4,8 +4,8 @@ use core::{
   ptr,
 };
 
-use crate::BootServices;
 use super::MemoryType;
+use crate::BootServices;
 
 pub struct BootServicesGlobalAllocator<T: BootServices + 'static>(pub &'static T);
 
