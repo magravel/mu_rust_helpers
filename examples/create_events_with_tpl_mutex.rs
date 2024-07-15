@@ -4,7 +4,10 @@ use alloc::boxed::Box;
 use core::{ffi::c_void, mem::MaybeUninit, ptr};
 
 use mu_rust_helpers::{
-  boot_services::{event::EventType, tpl::Tpl, BootServices, StandardBootServices},
+  boot_services::{
+    event::EventType, tpl::Tpl,
+    BootServices, StandardBootServices,
+  },
   tpl_mutex::TplMutex,
 };
 
