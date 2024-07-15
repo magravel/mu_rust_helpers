@@ -1,11 +1,13 @@
 #![cfg_attr(all(not(test), not(feature = "mockall")), no_std)]
 
+use boxed::BootServicesBox;
 #[cfg(any(test, feature = "mockall"))]
 use mockall::automock;
 
 extern crate alloc;
 
 pub mod allocation;
+pub mod boxed;
 pub mod event;
 pub mod global_allocator;
 pub mod protocol_handler;
@@ -249,7 +251,7 @@ pub trait BootServices {
 
   fn get_memory_map<'a>(&self, buffer: &'a mut [u8]) -> Result<MemoryMap<'a>, (efi::Status, usize)>;
 
-  fn allocate_pool(&self, memory_type: MemoryType, size: usize) -> Result<*mut u8, efi::Status>;
+  fn allocate_pool(&self, pool_type: MemoryType, size: usize) -> Result<*mut u8, efi::Status>;
 
   fn free_pool(&self, buffer: *mut u8) -> Result<(), efi::Status>;
 
@@ -387,7 +389,7 @@ pub trait BootServices {
     &self,
     handle: efi::Handle,
     protocol: &efi::Guid,
-  ) -> Result<Box<[efi::OpenProtocolInformationEntry]>, efi::Status>;
+  ) -> Result<BootServicesBox<[efi::OpenProtocolInformationEntry], Self>, efi::Status> where Self: Sized;
 
   unsafe fn connect_controller(
     &self,
@@ -404,9 +406,9 @@ pub trait BootServices {
     child_handle: Option<efi::Handle>,
   ) -> Result<(), efi::Status>;
 
-  fn protocols_per_handle(&self, handle: efi::Handle) -> Result<Box<[efi::Guid]>, efi::Status>;
+  fn protocols_per_handle(&self, handle: efi::Handle) -> Result<BootServicesBox<[efi::Guid], Self>, efi::Status> where Self: Sized;
 
-  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<Box<[efi::Handle]>, efi::Status>;
+  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> where Self: Sized;
 
   fn locate_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -747,7 +749,7 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     handle: efi::Handle,
     protocol: &efi::Guid,
-  ) -> Result<Box<[efi::OpenProtocolInformationEntry]>, efi::Status> {
+  ) -> Result<BootServicesBox<[efi::OpenProtocolInformationEntry], Self>, efi::Status> where Self: Sized {
     let mut entry_buffer = ptr::null_mut();
     let mut entry_count = 0;
     match (self.efi_boot_services().open_protocol_information)(
@@ -758,9 +760,9 @@ impl BootServices for StandardBootServices<'_> {
     ) {
       s if s.is_error() => Err(s),
       _ => {
-        let entry_buffer = unsafe { NonNull::new_unchecked(entry_buffer) };
-        let ptr = NonNull::slice_from_raw_parts(entry_buffer, entry_count);
-        Ok(unsafe { Box::from_raw(ptr.as_ptr()) })
+        Ok(unsafe {
+           BootServicesBox::from_raw_parts(entry_buffer, entry_count, self) 
+        })
       }
     }
   }
@@ -799,7 +801,7 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn protocols_per_handle(&self, handle: efi::Handle) -> Result<Box<[efi::Guid]>, efi::Status> {
+  fn protocols_per_handle(&self, handle: efi::Handle) -> Result<BootServicesBox<[efi::Guid], Self>, efi::Status> {
     let mut protocol_buffer = ptr::null_mut();
     let mut protocol_buffer_count = 0;
     match (self.efi_boot_services().protocols_per_handle)(
@@ -808,11 +810,11 @@ impl BootServices for StandardBootServices<'_> {
       ptr::addr_of_mut!(protocol_buffer_count),
     ) {
       s if s.is_error() => Err(s),
-      _ => Ok(unsafe { slice::from_raw_parts(protocol_buffer as *const _, protocol_buffer_count).into() }),
+      _ => Ok(unsafe { BootServicesBox::<[_], _>::from_raw_parts(protocol_buffer as *mut _, protocol_buffer_count, self) }),
     }
   }
 
-  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<Box<[efi::Handle]>, efi::Status> {
+  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> where Self: Sized {
     let mut buffer = ptr::null_mut();
     let mut buffer_count = 0;
     let protocol = match search_type {
@@ -831,7 +833,7 @@ impl BootServices for StandardBootServices<'_> {
       ptr::addr_of_mut!(buffer),
     ) {
       s if s.is_error() => Err(s),
-      _ => Ok(unsafe { slice::from_raw_parts(buffer as *const _, buffer_count).into() }),
+      _ => Ok(unsafe { BootServicesBox::<[_], _>::from_raw_parts(buffer as *mut efi::Handle, buffer_count, self) }),
     }
   }
 
