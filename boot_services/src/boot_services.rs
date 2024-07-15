@@ -19,7 +19,6 @@ use core::{
   mem::{self, MaybeUninit},
   option::Option,
   ptr,
-  slice,
   sync::atomic::{AtomicPtr, Ordering},
 };
 
@@ -85,7 +84,7 @@ unsafe impl Send for StandardBootServices<'static> {}
 
 /// Functions that are available *before* a successful call to EFI_BOOT_SERVICES.ExitBootServices().
 #[cfg_attr(any(test, feature = "mockall"), automock)]
-pub trait BootServices {
+pub trait BootServices: Sized {
   /// Create an event.
   ///
   /// UEFI Spec Documentation:
@@ -248,7 +247,7 @@ pub trait BootServices {
 
   fn free_pages(&self, address: usize, nb_pages: usize) -> Result<(), efi::Status>;
 
-  fn get_memory_map<'a>(&self, buffer: &'a mut [u8]) -> Result<MemoryMap<'a>, (efi::Status, usize)>;
+  fn get_memory_map<'a>(&'a self) -> Result<MemoryMap<'a, Self>, (efi::Status, usize)>;
 
   fn allocate_pool(&self, pool_type: MemoryType, size: usize) -> Result<*mut u8, efi::Status>;
 
@@ -331,10 +330,9 @@ pub trait BootServices {
   ) -> Result<(), efi::Status>;
 
   fn locate_handle<'a>(
-    &self,
+    &'a self,
     search_type: HandleSearchType,
-    buffer: &'a mut [u8],
-  ) -> Result<&'a [efi::Handle], efi::Status>;
+  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status>;
 
   fn handle_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -384,11 +382,13 @@ pub trait BootServices {
     controller_handle: efi::Handle,
   ) -> Result<(), efi::Status>;
 
-  fn open_protocol_information(
-    &self,
+  fn open_protocol_information<'a>(
+    &'a self,
     handle: efi::Handle,
     protocol: &efi::Guid,
-  ) -> Result<BootServicesBox<[efi::OpenProtocolInformationEntry], Self>, efi::Status> where Self: Sized;
+  ) -> Result<BootServicesBox<'a, [efi::OpenProtocolInformationEntry], Self>, efi::Status>
+  where
+    Self: Sized;
 
   unsafe fn connect_controller(
     &self,
@@ -405,9 +405,19 @@ pub trait BootServices {
     child_handle: Option<efi::Handle>,
   ) -> Result<(), efi::Status>;
 
-  fn protocols_per_handle(&self, handle: efi::Handle) -> Result<BootServicesBox<[efi::Guid], Self>, efi::Status> where Self: Sized;
+  fn protocols_per_handle<'a>(
+    &'a self,
+    handle: efi::Handle,
+  ) -> Result<BootServicesBox<'a, [efi::Guid], Self>, efi::Status>
+  where
+    Self: Sized;
 
-  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> where Self: Sized;
+  fn locate_handle_buffer<'a>(
+    &'a self,
+    search_type: HandleSearchType,
+  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status>
+  where
+    Self: Sized;
 
   fn locate_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -546,14 +556,28 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn get_memory_map<'a>(&self, buffer: &'a mut [u8]) -> Result<MemoryMap<'a>, (efi::Status, usize)> {
-    let mut memory_map_size = buffer.len();
+  fn get_memory_map<'a>(&'a self) -> Result<MemoryMap<'a, Self>, (efi::Status, usize)> {
+    let mut memory_map_size = 0;
     let mut map_key = 0;
     let mut descriptor_size = 0;
     let mut descriptor_version = 0;
+
     match (self.efi_boot_services().get_memory_map)(
       ptr::addr_of_mut!(memory_map_size),
-      buffer.as_mut_ptr() as *mut _,
+      ptr::null_mut(),
+      ptr::addr_of_mut!(map_key),
+      ptr::addr_of_mut!(descriptor_size),
+      ptr::addr_of_mut!(descriptor_version),
+    ) {
+      s if s == efi::Status::BUFFER_TOO_SMALL => memory_map_size += 64, // add more space in case allocation makes the memory map bigger.
+      _ => (),
+    };
+
+    let buffer = self.allocate_pool(MemoryType::BootServicesData, memory_map_size).map_err(|s| (s, 0))?;
+
+    match (self.efi_boot_services().get_memory_map)(
+      ptr::addr_of_mut!(memory_map_size),
+      buffer as *mut _,
       ptr::addr_of_mut!(map_key),
       ptr::addr_of_mut!(descriptor_size),
       ptr::addr_of_mut!(descriptor_version),
@@ -563,7 +587,7 @@ impl BootServices for StandardBootServices<'_> {
       _ => (),
     }
     Ok(MemoryMap {
-      descriptors: unsafe { slice::from_raw_parts(buffer.as_ptr() as *const _, memory_map_size / descriptor_size) },
+      descriptors: unsafe { BootServicesBox::from_raw_parts(buffer as *mut _, descriptor_size, self) },
       map_key,
       descriptor_version,
     })
@@ -649,10 +673,9 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn locate_handle<'a>(
-    &self,
+    &'a self,
     search_type: HandleSearchType,
-    buffer: &'a mut [u8],
-  ) -> Result<&'a [efi::Handle], efi::Status> {
+  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status> {
     let protocol = match search_type {
       HandleSearchType::ByProtocol(p) => p as *const _ as *mut _,
       _ => ptr::null_mut(),
@@ -661,17 +684,29 @@ impl BootServices for StandardBootServices<'_> {
       HandleSearchType::ByRegisterNotify(k) => k,
       _ => ptr::null_mut(),
     };
-    let mut buffer_size = buffer.len();
+
+    // Use to get the buffer_size
+    let mut buffer_size = 0;
+    (self.efi_boot_services().locate_handle)(
+      search_type.into(),
+      protocol,
+      search_key,
+      ptr::addr_of_mut!(buffer_size),
+      ptr::null_mut(),
+    );
+
+    let buffer = self.allocate_pool(MemoryType::BootServicesData, buffer_size)?;
+
     match (self.efi_boot_services().locate_handle)(
       search_type.into(),
       protocol,
       search_key,
       ptr::addr_of_mut!(buffer_size),
-      buffer.as_mut_ptr() as *mut efi::Handle,
+      buffer as *mut efi::Handle,
     ) {
       s if s.is_error() => Err(s),
       _ => {
-        Ok(unsafe { slice::from_raw_parts(buffer.as_ptr() as *const _, buffer_size / mem::size_of::<efi::Handle>()) })
+        Ok(unsafe { BootServicesBox::from_raw_parts(buffer as *mut _, buffer_size / mem::size_of::<efi::Handle>(), &self) })
       }
     }
   }
@@ -748,7 +783,10 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     handle: efi::Handle,
     protocol: &efi::Guid,
-  ) -> Result<BootServicesBox<[efi::OpenProtocolInformationEntry], Self>, efi::Status> where Self: Sized {
+  ) -> Result<BootServicesBox<[efi::OpenProtocolInformationEntry], Self>, efi::Status>
+  where
+    Self: Sized,
+  {
     let mut entry_buffer = ptr::null_mut();
     let mut entry_count = 0;
     match (self.efi_boot_services().open_protocol_information)(
@@ -758,11 +796,7 @@ impl BootServices for StandardBootServices<'_> {
       ptr::addr_of_mut!(entry_count),
     ) {
       s if s.is_error() => Err(s),
-      _ => {
-        Ok(unsafe {
-           BootServicesBox::from_raw_parts(entry_buffer, entry_count, self) 
-        })
-      }
+      _ => Ok(unsafe { BootServicesBox::from_raw_parts(entry_buffer, entry_count, self) }),
     }
   }
 
@@ -809,11 +843,19 @@ impl BootServices for StandardBootServices<'_> {
       ptr::addr_of_mut!(protocol_buffer_count),
     ) {
       s if s.is_error() => Err(s),
-      _ => Ok(unsafe { BootServicesBox::<[_], _>::from_raw_parts(protocol_buffer as *mut _, protocol_buffer_count, self) }),
+      _ => {
+        Ok(unsafe { BootServicesBox::<[_], _>::from_raw_parts(protocol_buffer as *mut _, protocol_buffer_count, self) })
+      }
     }
   }
 
-  fn locate_handle_buffer(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> where Self: Sized {
+  fn locate_handle_buffer(
+    &self,
+    search_type: HandleSearchType,
+  ) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status>
+  where
+    Self: Sized,
+  {
     let mut buffer = ptr::null_mut();
     let mut buffer_count = 0;
     let protocol = match search_type {

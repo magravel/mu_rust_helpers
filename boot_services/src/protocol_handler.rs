@@ -9,6 +9,7 @@ pub unsafe trait Protocol {
 
 pub type Registration = *mut c_void;
 
+#[derive(Debug, Clone, Copy)]
 pub enum HandleSearchType {
   AllHandle,
   ByRegisterNotify(Registration),

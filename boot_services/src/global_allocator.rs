@@ -5,7 +5,6 @@ use core::{
 };
 
 use crate::BootServices;
-
 use super::MemoryType;
 
 pub struct BootServicesGlobalAllocator<T: BootServices + 'static>(pub &'static T);

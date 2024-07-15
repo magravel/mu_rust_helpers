@@ -2,6 +2,8 @@ use core::ops::{BitOr, BitOrAssign};
 
 use r_efi::efi;
 
+use crate::{boxed::BootServicesBox, BootServices};
+
 #[derive(Debug)]
 pub enum AllocType {
   AnyPage,
@@ -30,8 +32,8 @@ pub enum MemoryType {
 }
 
 #[derive(Debug)]
-pub struct MemoryMap<'a> {
-  pub descriptors: &'a [MemoryDescriptor],
+pub struct MemoryMap<'a, B: BootServices> {
+  pub descriptors: BootServicesBox<'a, [MemoryDescriptor], B>,
   pub map_key: usize,
   pub descriptor_version: u32,
 }

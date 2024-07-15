@@ -8,6 +8,7 @@ use alloc::slice;
 
 use crate::{allocation::MemoryType, BootServices};
 
+#[derive(Debug)]
 pub struct BootServicesBox<'a, T: ?Sized, B: BootServices> {
   boot_services: &'a B,
   ptr: *mut T,
