@@ -334,11 +334,11 @@ pub trait BootServices: Sized {
 
   fn handle_protocol_unchecked(&self, handle: efi::Handle, protocol: &efi::Guid) -> Result<*mut c_void, efi::Status>;
 
-  fn locate_device_path(
+  unsafe fn locate_device_path(
     &self,
     protocol: &efi::Guid,
-    device_path: &efi::protocols::device_path::Protocol,
-  ) -> Result<(efi::Handle, efi::protocols::device_path::Protocol), efi::Status>;
+    device_path: *mut *mut efi::protocols::device_path::Protocol,
+  ) -> Result<efi::Handle, efi::Status>;
 
   fn open_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -378,11 +378,11 @@ pub trait BootServices: Sized {
     protocol: &efi::Guid,
   ) -> Result<BootServicesBox<'a, [efi::OpenProtocolInformationEntry], Self>, efi::Status>;
 
-  fn connect_controller<'a>(
+  unsafe fn connect_controller(
     &self,
     controller_handle: efi::Handle,
     driver_image_handle: Vec<efi::Handle>,
-    remaining_device_path: Option<&'a efi::protocols::device_path::Protocol>,
+    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
     recursive: bool,
   ) -> Result<(), efi::Status>;
 
@@ -707,20 +707,19 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn locate_device_path(
+  unsafe fn locate_device_path(
     &self,
     protocol: &efi::Guid,
-    device_path: &efi::protocols::device_path::Protocol,
-  ) -> Result<(efi::Handle, efi::protocols::device_path::Protocol), efi::Status> {
-    let mut device_path = device_path as *const _ as *mut _;
+    device_path: *mut *mut efi::protocols::device_path::Protocol,
+  ) -> Result<efi::Handle, efi::Status> {
     let mut device = ptr::null_mut();
     match (self.efi_boot_services().locate_device_path)(
       protocol as *const _ as *mut _,
-      ptr::addr_of_mut!(device_path),
+      device_path,
       ptr::addr_of_mut!(device),
     ) {
       s if s.is_error() => Err(s),
-      _ => Ok((device, unsafe { ptr::read(device_path) })),
+      _ => Ok(device),
     }
   }
 
@@ -785,11 +784,11 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn connect_controller<'a>(
+  unsafe fn connect_controller(
     &self,
     controller_handle: efi::Handle,
     mut driver_image_handle: Vec<efi::Handle>,
-    remaining_device_path: Option<&'a efi::protocols::device_path::Protocol>,
+    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
     recursive: bool,
   ) -> Result<(), efi::Status> {
     let driver_image_handle = if driver_image_handle.is_empty() {
@@ -801,7 +800,7 @@ impl BootServices for StandardBootServices<'_> {
     match (self.efi_boot_services().connect_controller)(
       controller_handle,
       driver_image_handle,
-      remaining_device_path.map_or(ptr::null_mut(), |x| x as *const _ as *mut _),
+      remaining_device_path.unwrap_or(ptr::null_mut()),
       recursive.into(),
     ) {
       s if s.is_error() => Err(s),
