@@ -15,12 +15,7 @@ pub mod tpl;
 use mockall::automock;
 
 use core::{
-  ffi::c_void,
-  marker::PhantomData,
-  mem::{self, MaybeUninit},
-  option::Option,
-  ptr,
-  sync::atomic::{AtomicPtr, Ordering},
+  ffi::c_void, marker::PhantomData, mem::{self, MaybeUninit}, option::Option, ptr, sync::atomic::{AtomicPtr, Ordering}
 };
 
 use r_efi::efi;
@@ -177,7 +172,7 @@ pub trait BootServices: Sized {
   /// </a>
   ///
   /// [^note]: It is safe to call *close_event* in the notify function.
-  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status>; // TODO is is relevent to have a result if it can only return Success.
+  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status>; 
 
   /// Signals an event.
   ///
@@ -185,7 +180,7 @@ pub trait BootServices: Sized {
   /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-signalevent" target="_blank">
   ///   7.1.4. EFI_BOOT_SERVICES.SignalEvent()
   /// </a>
-  fn signal_event(&self, event: efi::Event) -> Result<(), efi::Status>; // TODO is is relevent to have a result if it can only return Success.
+  fn signal_event(&self, event: efi::Event) -> Result<(), efi::Status>;
 
   /// Stops execution until an event is signaled.
   ///
@@ -225,6 +220,7 @@ pub trait BootServices: Sized {
   ///   7.1.8. EFI_BOOT_SERVICES.RaiseTPL()
   /// </a>
   fn raise_tpl(&self, tpl: Tpl) -> Tpl;
+
   /// Restores a task’s priority level to its previous value.
   ///
   /// UEFI Spec Documentation:
@@ -317,12 +313,11 @@ pub trait BootServices: Sized {
     new_protocol_interface: Option<*mut c_void>,
   ) -> Result<(), efi::Status>;
 
-  unsafe fn register_protocol_notify(
+  fn register_protocol_notify(
     &self,
     protocol: &'static efi::Guid,
     event: efi::Event,
-    registration: *mut Registration,
-  ) -> Result<(), efi::Status>;
+  ) -> Result<Registration, efi::Status>;
 
   fn locate_handle<'a>(
     &'a self,
@@ -339,11 +334,11 @@ pub trait BootServices: Sized {
 
   fn handle_protocol_unchecked(&self, handle: efi::Handle, protocol: &efi::Guid) -> Result<*mut c_void, efi::Status>;
 
-  unsafe fn locate_device_path(
+  fn locate_device_path(
     &self,
     protocol: &efi::Guid,
-    device_path: *mut *mut efi::protocols::device_path::Protocol,
-  ) -> Result<efi::Handle, efi::Status>;
+    device_path: &efi::protocols::device_path::Protocol,
+  ) -> Result<(efi::Handle, efi::protocols::device_path::Protocol), efi::Status>;
 
   fn open_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
@@ -383,11 +378,11 @@ pub trait BootServices: Sized {
     protocol: &efi::Guid,
   ) -> Result<BootServicesBox<'a, [efi::OpenProtocolInformationEntry], Self>, efi::Status>;
 
-  unsafe fn connect_controller(
+  fn connect_controller<'a>(
     &self,
     controller_handle: efi::Handle,
-    driver_image_handle: Option<*mut efi::Handle>, // list with terminated by a NULL handle value
-    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
+    driver_image_handle: Vec<efi::Handle>,
+    remaining_device_path: Option<&'a efi::protocols::device_path::Protocol>,
     recursive: bool,
   ) -> Result<(), efi::Status>;
 
@@ -649,22 +644,22 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  unsafe fn register_protocol_notify(
+  fn register_protocol_notify(
     &self,
     protocol: &efi::Guid,
     event: efi::Event,
-    registration: *mut Registration,
-  ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().register_protocol_notify)(protocol as *const _ as *mut _, event, registration as *mut _) {
+  ) -> Result<Registration, efi::Status> {
+    let mut registration = MaybeUninit::uninit();
+    match (self.efi_boot_services().register_protocol_notify)(protocol as *const _ as *mut _, event, registration.as_mut_ptr() as *mut _) {
       s if s.is_error() => Err(s),
-      _ => Ok(()),
+      _ => Ok(unsafe { registration.assume_init() }),
     }
   }
 
-  fn locate_handle<'a>(
-    &'a self,
+  fn locate_handle(
+    &self,
     search_type: HandleSearchType,
-  ) -> Result<BootServicesBox<'a, [efi::Handle], Self>, efi::Status> {
+  ) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> {
     let protocol = match search_type {
       HandleSearchType::ByProtocol(p) => p as *const _ as *mut _,
       _ => ptr::null_mut(),
@@ -712,19 +707,20 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  unsafe fn locate_device_path(
+  fn locate_device_path(
     &self,
     protocol: &efi::Guid,
-    device_path: *mut *mut efi::protocols::device_path::Protocol,
-  ) -> Result<efi::Handle, efi::Status> {
+    device_path: &efi::protocols::device_path::Protocol,
+  ) -> Result<(efi::Handle, efi::protocols::device_path::Protocol), efi::Status> {
+    let mut device_path = device_path as *const _ as *mut _;
     let mut device = ptr::null_mut();
     match (self.efi_boot_services().locate_device_path)(
       protocol as *const _ as *mut _,
-      device_path,
+      ptr::addr_of_mut!(device_path),
       ptr::addr_of_mut!(device),
     ) {
       s if s.is_error() => Err(s),
-      _ => Ok(device),
+      _ => Ok((device, unsafe { ptr::read(device_path) })),
     }
   }
 
@@ -789,17 +785,23 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  unsafe fn connect_controller(
+  fn connect_controller<'a>(
     &self,
     controller_handle: efi::Handle,
-    driver_image_handle: Option<*mut efi::Handle>,
-    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
+    mut driver_image_handle: Vec<efi::Handle>,
+    remaining_device_path: Option<&'a efi::protocols::device_path::Protocol>,
     recursive: bool,
   ) -> Result<(), efi::Status> {
+    let driver_image_handle = if driver_image_handle.is_empty() {
+      ptr::null_mut()
+    } else {
+      driver_image_handle.push(ptr::null_mut());
+      driver_image_handle.as_mut_ptr()
+    };
     match (self.efi_boot_services().connect_controller)(
       controller_handle,
-      driver_image_handle.unwrap_or(ptr::null_mut()),
-      remaining_device_path.unwrap_or(ptr::null_mut()),
+      driver_image_handle,
+      remaining_device_path.map_or(ptr::null_mut(), |x| x as *const _ as *mut _),
       recursive.into(),
     ) {
       s if s.is_error() => Err(s),

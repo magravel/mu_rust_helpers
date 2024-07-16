@@ -15,7 +15,7 @@ fn main() {
     .expect_create_event::<Box<MaybeUninit<Registration>>, _>()
     .withf(|_, _, _, _| true)
     .returning(|_, _, _, _| Ok(ptr::null_mut()));
-  let _ = boot_services.expect_register_protocol_notify().withf(|_, _, _| true).return_const(Ok(()));
+  let _ = boot_services.expect_register_protocol_notify().withf(|_, _| true).returning(|_, _| Ok(ptr::null_mut()));
 
   extern "efiapi" fn event_notify_callback(_event: efi::Event, context: Box<MaybeUninit<Registration>>) {
     println!("{context:?}")
@@ -28,6 +28,8 @@ fn main() {
     .create_event(EventType::NOTIFY_SIGNAL, Tpl::CALLBACK, Some(event_notify_callback), registration)
     .unwrap();
 
-  let _ = unsafe { boot_services.register_protocol_notify(DriverBinding.protocol_guid(), event, registration_ptr) };
-  let _ = unsafe { boot_services.register_protocol_notify(&DriverBinding, event, registration_ptr) };
+  unsafe {
+    registration_ptr.write(boot_services.register_protocol_notify(DriverBinding.protocol_guid(), event).unwrap())  
+  }
+  
 }
