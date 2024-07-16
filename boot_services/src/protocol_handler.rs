@@ -1,8 +1,8 @@
-use core::ffi::c_void;
+use core::{ffi::c_void, ops::Deref};
 
 use r_efi::efi;
 
-pub unsafe trait Protocol {
+pub unsafe trait Protocol: Deref<Target = efi::Guid> {
   type Interface;
   fn protocol_guid(&self) -> &'static efi::Guid;
 }
@@ -40,6 +40,12 @@ macro_rules! impl_protocol {
       type Interface = $protocol_type;
       fn protocol_guid(&self) -> &'static efi::Guid {
         &$guid
+      }
+    }
+    impl core::ops::Deref for $protocol_struct {
+      type Target = r_efi::efi::Guid;
+      fn deref(&self) -> &Self::Target {
+        &self.protocol_guid()
       }
     }
   };

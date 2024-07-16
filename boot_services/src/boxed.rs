@@ -1,10 +1,9 @@
+use alloc::slice;
 use core::{
   mem,
   ops::{Deref, DerefMut},
   ptr,
 };
-
-use alloc::slice;
 
 use crate::{allocation::MemoryType, BootServices};
 

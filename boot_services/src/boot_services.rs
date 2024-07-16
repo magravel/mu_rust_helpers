@@ -251,7 +251,7 @@ pub trait BootServices: Sized {
   fn install_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: Option<efi::Handle>,
-    protocol: P,
+    protocol: &P,
     interface: Option<&'static mut I>,
   ) -> Result<efi::Handle, efi::Status> {
     unsafe {
@@ -273,7 +273,7 @@ pub trait BootServices: Sized {
   fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
-    protocol: P,
+    protocol: &P,
     interface: Option<&'static mut I>,
   ) -> Result<(), efi::Status> {
     unsafe {
@@ -292,10 +292,10 @@ pub trait BootServices: Sized {
     interface: Option<*mut c_void>,
   ) -> Result<(), efi::Status>;
 
-  unsafe fn reinstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
+  fn reinstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
-    protocol: P,
+    protocol: &P,
     old_protocol_interface: Option<&'static mut I>,
     new_protocol_interface: Option<&'static mut I>,
   ) -> Result<(), efi::Status> {
@@ -319,7 +319,7 @@ pub trait BootServices: Sized {
 
   unsafe fn register_protocol_notify(
     &self,
-    protocol: &efi::Guid,
+    protocol: &'static efi::Guid,
     event: efi::Event,
     registration: *mut Registration,
   ) -> Result<(), efi::Status>;
@@ -332,7 +332,7 @@ pub trait BootServices: Sized {
   fn handle_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
-    protocol: P,
+    protocol: &P,
   ) -> Result<Option<&'static mut I>, efi::Status> {
     unsafe { self.handle_protocol_unchecked(handle, protocol.protocol_guid()).map(|i| (i as *mut I).as_mut()) }
   }
@@ -348,14 +348,14 @@ pub trait BootServices: Sized {
   fn open_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
-    protocol: P,
+    protocol: &P,
     agent_handle: efi::Handle,
     controller_handle: efi::Handle,
     attribute: u32,
   ) -> Result<Option<&'static mut I>, efi::Status> {
     unsafe {
       self
-        .open_protocol_unchecked(handle, protocol.protocol_guid(), agent_handle, controller_handle, attribute)
+        .open_protocol_unchecked(handle, protocol, agent_handle, controller_handle, attribute)
         .map(|i| (i as *mut I).as_mut())
     }
   }
@@ -410,7 +410,7 @@ pub trait BootServices: Sized {
 
   fn locate_protocol<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
-    protocol: P,
+    protocol: &P,
     registration: Option<Registration>,
   ) -> Option<&'static mut I> {
     unsafe { self.locate_protocol_unchecked(protocol.protocol_guid(), registration).map(|x| (x as *mut I).as_mut()) }
@@ -655,7 +655,7 @@ impl BootServices for StandardBootServices<'_> {
     event: efi::Event,
     registration: *mut Registration,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().register_protocol_notify)(protocol as *const _ as *mut _, event, registration) {
+    match (self.efi_boot_services().register_protocol_notify)(protocol as *const _ as *mut _, event, registration as *mut _) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
