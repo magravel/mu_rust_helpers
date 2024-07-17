@@ -250,6 +250,7 @@ pub trait BootServices: Sized {
     protocol: &P,
     interface: Option<&'static mut I>,
   ) -> Result<efi::Handle, efi::Status> {
+    //SAFETY: The generic Protocol ensure that the interface is the right type for the specified protocol.
     unsafe {
       self.install_protocol_interface_unchecked(
         handle,
@@ -272,6 +273,7 @@ pub trait BootServices: Sized {
     protocol: &P,
     interface: Option<&'static mut I>,
   ) -> Result<(), efi::Status> {
+    //SAFETY: The generic Protocol ensure that the interface is the right type for the specified protocol.
     unsafe {
       self.uninstall_protocol_interface_unchecked(
         handle,
@@ -295,6 +297,7 @@ pub trait BootServices: Sized {
     old_protocol_interface: Option<&'static mut I>,
     new_protocol_interface: Option<&'static mut I>,
   ) -> Result<(), efi::Status> {
+    //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
     unsafe {
       self.reinstall_protocol_interface_unchecked(
         handle,
@@ -329,6 +332,7 @@ pub trait BootServices: Sized {
     handle: efi::Handle,
     protocol: &P,
   ) -> Result<Option<&'static mut I>, efi::Status> {
+    //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
     unsafe { self.handle_protocol_unchecked(handle, protocol.protocol_guid()).map(|i| (i as *mut I).as_mut()) }
   }
 
@@ -348,6 +352,7 @@ pub trait BootServices: Sized {
     controller_handle: efi::Handle,
     attribute: u32,
   ) -> Result<Option<&'static mut I>, efi::Status> {
+    //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
     unsafe {
       self
         .open_protocol_unchecked(handle, protocol, agent_handle, controller_handle, attribute)
@@ -408,6 +413,7 @@ pub trait BootServices: Sized {
     protocol: &P,
     registration: Option<Registration>,
   ) -> Option<&'static mut I> {
+    //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
     unsafe { self.locate_protocol_unchecked(protocol.protocol_guid(), registration).map(|x| (x as *mut I).as_mut()) }
       .unwrap_or(None)
   }
