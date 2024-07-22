@@ -29,7 +29,6 @@ fn main() {
     .unwrap();
 
   unsafe {
-    registration_ptr.write(boot_services.register_protocol_notify(DriverBinding.protocol_guid(), event).unwrap())  
+    registration_ptr.write(boot_services.register_protocol_notify(DriverBinding.protocol_guid(), event).unwrap())
   }
-  
 }

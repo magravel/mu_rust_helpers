@@ -14,8 +14,14 @@ pub mod tpl;
 #[cfg(any(test, feature = "mockall"))]
 use mockall::automock;
 
+use alloc::vec::Vec;
 use core::{
-  ffi::c_void, marker::PhantomData, mem::{self, MaybeUninit}, option::Option, ptr, sync::atomic::{AtomicPtr, Ordering}
+  ffi::c_void,
+  marker::PhantomData,
+  mem::{self, MaybeUninit},
+  option::Option,
+  ptr,
+  sync::atomic::{AtomicPtr, Ordering},
 };
 
 use r_efi::efi;
@@ -172,7 +178,7 @@ pub trait BootServices: Sized {
   /// </a>
   ///
   /// [^note]: It is safe to call *close_event* in the notify function.
-  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status>; 
+  fn close_event(&self, event: efi::Event) -> Result<(), efi::Status>;
 
   /// Signals an event.
   ///
@@ -650,22 +656,19 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn register_protocol_notify(
-    &self,
-    protocol: &efi::Guid,
-    event: efi::Event,
-  ) -> Result<Registration, efi::Status> {
+  fn register_protocol_notify(&self, protocol: &efi::Guid, event: efi::Event) -> Result<Registration, efi::Status> {
     let mut registration = MaybeUninit::uninit();
-    match (self.efi_boot_services().register_protocol_notify)(protocol as *const _ as *mut _, event, registration.as_mut_ptr() as *mut _) {
+    match (self.efi_boot_services().register_protocol_notify)(
+      protocol as *const _ as *mut _,
+      event,
+      registration.as_mut_ptr() as *mut _,
+    ) {
       s if s.is_error() => Err(s),
       _ => Ok(unsafe { registration.assume_init() }),
     }
   }
 
-  fn locate_handle(
-    &self,
-    search_type: HandleSearchType,
-  ) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> {
+  fn locate_handle(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> {
     let protocol = match search_type {
       HandleSearchType::ByProtocol(p) => p as *const _ as *mut _,
       _ => ptr::null_mut(),
