@@ -16,6 +16,7 @@ use mockall::automock;
 
 use alloc::vec::Vec;
 use core::{
+  any::Any,
   ffi::c_void,
   marker::PhantomData,
   mem::{self, MaybeUninit},
@@ -248,27 +249,26 @@ pub trait BootServices: Sized {
 
   fn free_pool(&self, buffer: *mut u8) -> Result<(), efi::Status>;
 
-  fn install_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
+  fn install_protocol_interface<P: Protocol<Interface = I> + 'static, I: Any + 'static>(
     &self,
     handle: Option<efi::Handle>,
     protocol: &P,
-    interface: Option<&'static mut I>,
+    interface: &'static mut I,
   ) -> Result<efi::Handle, efi::Status> {
+    let interface_any = interface as &dyn Any;
+    let interface_ptr = match interface_any.downcast_ref::<()>() {
+      Some(()) => ptr::null_mut(),
+      None => interface as *mut _ as *mut c_void,
+    };
     //SAFETY: The generic Protocol ensure that the interface is the right type for the specified protocol.
-    unsafe {
-      self.install_protocol_interface_unchecked(
-        handle,
-        protocol.protocol_guid(),
-        interface.map(|i| i as *mut _ as *mut c_void),
-      )
-    }
+    unsafe { self.install_protocol_interface_unchecked(handle, protocol.protocol_guid(), interface_ptr) }
   }
 
   unsafe fn install_protocol_interface_unchecked(
     &self,
     handle: Option<efi::Handle>,
     protocol: &'static efi::Guid,
-    interface: Option<*mut c_void>,
+    interface: *mut c_void,
   ) -> Result<efi::Handle, efi::Status>;
 
   fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
@@ -606,14 +606,14 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     handle: Option<efi::Handle>,
     protocol: &'static efi::Guid,
-    interface: Option<*mut c_void>,
+    interface: *mut c_void,
   ) -> Result<efi::Handle, efi::Status> {
     let mut handle = handle.unwrap_or(ptr::null_mut());
     match (self.efi_boot_services().install_protocol_interface)(
       ptr::addr_of_mut!(handle),
       protocol as *const _ as *mut _,
       efi::NATIVE_INTERFACE,
-      interface.unwrap_or(ptr::null_mut()),
+      interface,
     ) {
       s if s.is_error() => Err(s),
       _ => Ok(handle),
@@ -1063,13 +1063,8 @@ mod test {
       efi::Status::SUCCESS
     }
     static GUID: efi::Guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
-    let status = BOOT_SERVICE.create_event_ex(
-      EventType::RUNTIME | EventType::NOTIFY_SIGNAL,
-      Tpl::APPLICATION,
-      None,
-      &(),
-      &GUID,
-    );
+    let status =
+      BOOT_SERVICE.create_event_ex(EventType::RUNTIME | EventType::NOTIFY_SIGNAL, Tpl::APPLICATION, None, &(), &GUID);
 
     assert!(matches!(status, Ok(_)));
   }

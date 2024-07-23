@@ -27,13 +27,6 @@ impl Into<efi::LocateSearchType> for HandleSearchType {
 }
 
 macro_rules! impl_protocol {
-  ($protocol_struct:ident, $protocol:ident) => {
-    impl_protocol! {
-      $protocol_struct,
-      r_efi::efi::protocols::$protocol::Protocol,
-      r_efi::efi::protocols::$protocol::PROTOCOL_GUID
-    }
-  };
   ($protocol_struct:ident, $protocol_type:ty, $guid:expr) => {
     pub struct $protocol_struct;
     unsafe impl Protocol for $protocol_struct {
@@ -51,53 +44,63 @@ macro_rules! impl_protocol {
   };
 }
 
-impl_protocol!(AbsolutePointer, absolute_pointer);
-impl_protocol!(BlockIo, block_io);
-impl_protocol!(BusSpecificDriverOverride, bus_specific_driver_override);
-impl_protocol!(DebugSupport, debug_support);
-impl_protocol!(DebugPort, debugport);
-impl_protocol!(Decompress, decompress);
-impl_protocol!(DevicePath, device_path);
-impl_protocol!(DevicePathFromText, device_path_from_text);
-impl_protocol!(DevicePathUtilities, device_path_utilities);
-impl_protocol!(DiskIo, disk_io);
-impl_protocol!(DiskIo2, disk_io2);
-impl_protocol!(DriverBinding, driver_binding);
-impl_protocol!(DriverDiagnostic2, driver_diagnostics2);
-impl_protocol!(DriverFamilyOverride, driver_family_override);
+macro_rules! impl_r_efi_protocol {
+  ($protocol_struct:ident, $protocol:ident) => {
+    impl_protocol! {
+      $protocol_struct,
+      r_efi::efi::protocols::$protocol::Protocol,
+      r_efi::efi::protocols::$protocol::PROTOCOL_GUID
+    }
+  };
+}
+
+impl_r_efi_protocol!(AbsolutePointer, absolute_pointer);
+impl_r_efi_protocol!(BlockIo, block_io);
+impl_r_efi_protocol!(BusSpecificDriverOverride, bus_specific_driver_override);
+impl_r_efi_protocol!(DebugSupport, debug_support);
+impl_r_efi_protocol!(DebugPort, debugport);
+impl_r_efi_protocol!(Decompress, decompress);
+impl_r_efi_protocol!(DevicePath, device_path);
+impl_r_efi_protocol!(DevicePathFromText, device_path_from_text);
+impl_r_efi_protocol!(DevicePathUtilities, device_path_utilities);
+impl_r_efi_protocol!(DiskIo, disk_io);
+impl_r_efi_protocol!(DiskIo2, disk_io2);
+impl_r_efi_protocol!(DriverBinding, driver_binding);
+impl_r_efi_protocol!(DriverDiagnostic2, driver_diagnostics2);
+impl_r_efi_protocol!(DriverFamilyOverride, driver_family_override);
 // protocol file ???;
-impl_protocol!(GraphicOutput, graphics_output);
-impl_protocol!(HiiDatabase, hii_database);
-impl_protocol!(HiiFont, hii_font);
-impl_protocol!(HiiFontEx, hii_font_ex);
+impl_r_efi_protocol!(GraphicOutput, graphics_output);
+impl_r_efi_protocol!(HiiDatabase, hii_database);
+impl_r_efi_protocol!(HiiFont, hii_font);
+impl_r_efi_protocol!(HiiFontEx, hii_font_ex);
 // protocol hii_package_list ???;
-impl_protocol!(HiiString, hii_string);
-impl_protocol!(Ip4, ip4);
-impl_protocol!(Ip6, ip6);
-impl_protocol!(LoadFile, load_file);
-impl_protocol!(LoadFile2, load_file2);
-impl_protocol!(LoadedImage, loaded_image);
+impl_r_efi_protocol!(HiiString, hii_string);
+impl_r_efi_protocol!(Ip4, ip4);
+impl_r_efi_protocol!(Ip6, ip6);
+impl_r_efi_protocol!(LoadFile, load_file);
+impl_r_efi_protocol!(LoadFile2, load_file2);
+impl_r_efi_protocol!(LoadedImage, loaded_image);
 impl_protocol!(
   LoadedImageDevicePath,
   efi::protocols::loaded_image::Protocol,
   efi::protocols::loaded_image_device_path::PROTOCOL_GUID
 );
-impl_protocol!(ManagedNetwork, managed_network);
-impl_protocol!(MpService, mp_services);
-impl_protocol!(PciIo, pci_io);
-impl_protocol!(PlatformDriverOverride, platform_driver_override);
-impl_protocol!(Rng, rng);
+impl_r_efi_protocol!(ManagedNetwork, managed_network);
+impl_r_efi_protocol!(MpService, mp_services);
+impl_r_efi_protocol!(PciIo, pci_io);
+impl_r_efi_protocol!(PlatformDriverOverride, platform_driver_override);
+impl_r_efi_protocol!(Rng, rng);
 // protocol service_binding ???
-impl_protocol!(Shell, shell);
-impl_protocol!(ShellDynamicCommand, shell_dynamic_command);
-impl_protocol!(ShellParameters, shell_parameters);
-impl_protocol!(SimpleFileSystem, simple_file_system);
-impl_protocol!(SimpleNetwork, simple_network);
-impl_protocol!(SimpleTextInput, simple_text_input);
-impl_protocol!(SimpleTextInputEx, simple_text_input_ex);
-impl_protocol!(SimpleTextOutput, simple_text_output);
-impl_protocol!(Tcp4, tcp4);
-impl_protocol!(Tcp6, tcp6);
-impl_protocol!(Timerstamp, timestamp);
-impl_protocol!(Udp4, udp4);
-impl_protocol!(Udp6, udp6);
+impl_r_efi_protocol!(Shell, shell);
+impl_r_efi_protocol!(ShellDynamicCommand, shell_dynamic_command);
+impl_r_efi_protocol!(ShellParameters, shell_parameters);
+impl_r_efi_protocol!(SimpleFileSystem, simple_file_system);
+impl_r_efi_protocol!(SimpleNetwork, simple_network);
+impl_r_efi_protocol!(SimpleTextInput, simple_text_input);
+impl_r_efi_protocol!(SimpleTextInputEx, simple_text_input_ex);
+impl_r_efi_protocol!(SimpleTextOutput, simple_text_output);
+impl_r_efi_protocol!(Tcp4, tcp4);
+impl_r_efi_protocol!(Tcp6, tcp6);
+impl_r_efi_protocol!(Timerstamp, timestamp);
+impl_r_efi_protocol!(Udp4, udp4);
+impl_r_efi_protocol!(Udp6, udp6);
