@@ -130,8 +130,6 @@ pub trait BootServices: Sized {
 
   /// Create an event in a group.
   ///
-  /// If no group is specified by EventGroup, then this function behaves as if the same parameters had been passed to [`BootServices::create_event`].
-  ///
   /// UEFI Spec Documentation:
   /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createeventex" target="_blank">
   ///   7.1.2. EFI_BOOT_SERVICES.CreateEventEx()
@@ -142,7 +140,7 @@ pub trait BootServices: Sized {
     notify_tpl: Tpl,
     notify_function: Option<EventNotifyCallback<T>>,
     notify_context: T,
-    event_group: Option<&'static efi::Guid>,
+    event_group: &'static efi::Guid,
   ) -> Result<efi::Event, efi::Status> {
     //SAFETY: EventCtxMutPtr generic is used to guaranteed that rust borowing and rules are meet.
     unsafe {
@@ -167,7 +165,7 @@ pub trait BootServices: Sized {
     notify_tpl: Tpl,
     notify_function: EventNotifyCallback<*mut T>,
     notify_context: *mut T,
-    event_group: Option<&'static efi::Guid>,
+    event_group: &'static efi::Guid,
   ) -> Result<efi::Event, efi::Status>;
 
   /// Close an event.
@@ -460,7 +458,7 @@ impl BootServices for StandardBootServices<'_> {
     notify_tpl: Tpl,
     notify_function: EventNotifyCallback<*mut T>,
     notify_context: *mut T,
-    event_group: Option<&'static efi::Guid>,
+    event_group: &'static efi::Guid,
   ) -> Result<efi::Event, efi::Status> {
     let mut event = MaybeUninit::zeroed();
     let status = (self.efi_boot_services().create_event_ex)(
@@ -468,7 +466,7 @@ impl BootServices for StandardBootServices<'_> {
       notify_tpl.into(),
       mem::transmute(notify_function),
       notify_context as *mut c_void,
-      event_group.map_or(ptr::null_mut(), |x| x as *const _),
+      event_group as *const _,
       event.as_mut_ptr(),
     );
     if status.is_error() {
@@ -1032,7 +1030,7 @@ mod test {
       Tpl::APPLICATION,
       Some(notify_callback),
       ctx,
-      Some(&GUID),
+      &GUID,
     );
 
     assert!(matches!(status, Ok(_)));
@@ -1070,7 +1068,7 @@ mod test {
       Tpl::APPLICATION,
       None,
       &(),
-      Some(&GUID),
+      &GUID,
     );
 
     assert!(matches!(status, Ok(_)));
