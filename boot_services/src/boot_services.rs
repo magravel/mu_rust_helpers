@@ -427,6 +427,8 @@ pub trait BootServices: Sized {
     protocol: &'static efi::Guid,
     registration: Option<*mut c_void>,
   ) -> Result<*mut c_void, efi::Status>;
+
+  fn intall_configuration_table<T: 'static>(&self, guid: &efi::Guid, table: BootServicesBox<'static, T, Self>) -> Result<(), efi::Status>;
 }
 
 impl BootServices for StandardBootServices<'_> {
@@ -888,6 +890,13 @@ impl BootServices for StandardBootServices<'_> {
     ) {
       s if s.is_error() => Err(s),
       _ => Ok(interface),
+    }
+  }
+
+  fn intall_configuration_table<T: 'static>(&self, guid: &efi::Guid, mut table: BootServicesBox<'static, T, Self>) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().install_configuration_table)(guid as *const _ as *mut _, table.as_mut() as *mut _ as *mut c_void) {
+      s if s.is_error() => Err(s),
+      _ => Ok(()),
     }
   }
 }
