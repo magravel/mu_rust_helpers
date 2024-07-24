@@ -12,7 +12,7 @@ use r_efi::efi;
 fn main() {
   let mut boot_services = MockBootServices::new();
   let _ = boot_services
-    .expect_create_event::<Box<MaybeUninit<Registration>>, _>()
+    .expect_create_event::<Box<MaybeUninit<Registration>>>()
     .withf(|_, _, _, _| true)
     .returning(|_, _, _, _| Ok(ptr::null_mut()));
   let _ = boot_services.expect_register_protocol_notify().withf(|_, _| true).returning(|_, _| Ok(ptr::null_mut()));

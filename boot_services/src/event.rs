@@ -1,73 +1,11 @@
 //! This module defined every struct related to event in boot services.
 
-use alloc::boxed::Box;
-use core::{
-  mem::ManuallyDrop,
-  ops::{self, Deref},
-  pin::Pin,
-  ptr,
-};
+use core::ops;
 
 use r_efi::efi;
 
 /// Function signature for event notify function.
 pub type EventNotifyCallback<T> = extern "efiapi" fn(efi::Event, T);
-
-/// Trait implemented for every type a context pointer can be.
-///
-/// <div class="warning">
-///
-/// This should be implemented **only** on type that have the same memory layout as `*mut T` and that can be recreated with [`core::mem::transmute`].
-///
-/// </div>
-pub unsafe trait EventCtxMutPtr {
-  /// The contntext type. It need to be size to prevent any fat pointer wich does not have `*mut T` memory layout.
-  type Ctx: Sized + 'static;
-  /// This function convert the type into its raw form.
-  fn into_raw_mut(self) -> *mut Self::Ctx;
-}
-
-unsafe impl<T: Sized + Sync + 'static> EventCtxMutPtr for &'static T {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    ptr::from_ref(self) as *mut _
-  }
-}
-
-unsafe impl<T: Sized + Sync + 'static> EventCtxMutPtr for &'static mut T {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    ptr::from_mut(self) as *mut _
-  }
-}
-
-unsafe impl<T: Sized + 'static> EventCtxMutPtr for Box<T> {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    ptr::from_mut(Box::leak(self))
-  }
-}
-
-unsafe impl<C: EventCtxMutPtr<Ctx = T>, T: Sized + 'static> EventCtxMutPtr for Option<C> {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    self.map(C::into_raw_mut).unwrap_or(ptr::null_mut())
-  }
-}
-
-unsafe impl<C: EventCtxMutPtr<Ctx = T>, T: Sized + 'static> EventCtxMutPtr for ManuallyDrop<C> {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    C::into_raw_mut(ManuallyDrop::into_inner(self))
-  }
-}
-
-unsafe impl<C: EventCtxMutPtr<Ctx = T> + Deref<Target = T>, T: Sized + Unpin + 'static> EventCtxMutPtr for Pin<C> {
-  type Ctx = T;
-  fn into_raw_mut(self) -> *mut Self::Ctx {
-    C::into_raw_mut(Pin::into_inner(self))
-  }
-}
 
 /// The type of time that is specified in TriggerTime. See the timer delay types in “Related Definitions.”
 #[derive(Debug, Clone, Copy)]

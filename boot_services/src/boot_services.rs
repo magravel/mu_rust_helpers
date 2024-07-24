@@ -9,6 +9,7 @@ pub mod allocation;
 pub mod boxed;
 pub mod event;
 pub mod protocol_handler;
+pub mod static_ptr;
 pub mod tpl;
 
 #[cfg(any(test, feature = "mockall"))]
@@ -24,12 +25,13 @@ use core::{
   ptr,
   sync::atomic::{AtomicPtr, Ordering},
 };
+use static_ptr::{StaticPtr, StaticPtrMut};
 
 use r_efi::efi;
 
 use allocation::{AllocType, MemoryMap, MemoryType};
 use boxed::BootServicesBox;
-use event::{EventCtxMutPtr, EventNotifyCallback, EventTimerType, EventType};
+use event::{EventNotifyCallback, EventTimerType, EventType};
 use protocol_handler::{HandleSearchType, Protocol, Registration};
 use tpl::{Tpl, TplGuard};
 
@@ -88,20 +90,24 @@ pub trait BootServices: Sized {
   /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createevent" target="_blank">
   ///   7.1.1. EFI_BOOT_SERVICES.CreateEvent()
   /// </a>
-  fn create_event<T: EventCtxMutPtr<Ctx = Ctx> + 'static, Ctx: Sized + 'static>(
+  fn create_event<T>(
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
     notify_function: Option<EventNotifyCallback<T>>,
     notify_context: T,
-  ) -> Result<efi::Event, efi::Status> {
+  ) -> Result<efi::Event, efi::Status>
+  where
+    T: StaticPtr + 'static,
+    <T as StaticPtr>::Pointee: Sized + 'static,
+  {
     //SAFETY: EventCtxMutPtr generic is used to guaranteed that rust borowing and rules are meet.
     unsafe {
       self.create_event_unchecked(
         event_type,
         notify_tpl,
         mem::transmute(notify_function),
-        notify_context.into_raw_mut(),
+        notify_context.into_raw() as *mut <T as StaticPtr>::Pointee,
       )
     }
   }
@@ -135,21 +141,25 @@ pub trait BootServices: Sized {
   /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-createeventex" target="_blank">
   ///   7.1.2. EFI_BOOT_SERVICES.CreateEventEx()
   /// </a>
-  fn create_event_ex<T: EventCtxMutPtr<Ctx = Ctx> + 'static, Ctx: Sized + 'static>(
+  fn create_event_ex<T>(
     &self,
     event_type: EventType,
     notify_tpl: Tpl,
     notify_function: Option<EventNotifyCallback<T>>,
     notify_context: T,
     event_group: &'static efi::Guid,
-  ) -> Result<efi::Event, efi::Status> {
+  ) -> Result<efi::Event, efi::Status>
+  where
+    T: StaticPtr + 'static,
+    <T as StaticPtr>::Pointee: Sized + 'static,
+  {
     //SAFETY: EventCtxMutPtr generic is used to guaranteed that rust borowing and rules are meet.
     unsafe {
       self.create_event_ex_unchecked(
         event_type,
         notify_tpl.into(),
         mem::transmute(notify_function),
-        notify_context.into_raw_mut(),
+        notify_context.into_raw() as *mut <T as StaticPtr>::Pointee,
         event_group,
       )
     }
@@ -428,7 +438,11 @@ pub trait BootServices: Sized {
     registration: Option<*mut c_void>,
   ) -> Result<*mut c_void, efi::Status>;
 
-  fn intall_configuration_table<T: 'static>(&self, guid: &efi::Guid, table: BootServicesBox<'static, T, Self>) -> Result<(), efi::Status>;
+  fn intall_configuration_table<T: StaticPtrMut + 'static>(
+    &self,
+    guid: &efi::Guid,
+    table: T,
+  ) -> Result<(), efi::Status>;
 }
 
 impl BootServices for StandardBootServices<'_> {
@@ -893,8 +907,15 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn intall_configuration_table<T: 'static>(&self, guid: &efi::Guid, mut table: BootServicesBox<'static, T, Self>) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().install_configuration_table)(guid as *const _ as *mut _, table.as_mut() as *mut _ as *mut c_void) {
+  fn intall_configuration_table<T: StaticPtrMut + 'static>(
+    &self,
+    guid: &efi::Guid,
+    table: T,
+  ) -> Result<(), efi::Status> {
+    match (self.efi_boot_services().install_configuration_table)(
+      guid as *const _ as *mut _,
+      table.into_raw_mut() as *mut c_void,
+    ) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
