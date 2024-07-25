@@ -453,8 +453,13 @@ impl BootServices for StandardBootServices<'_> {
     notify_function: Option<EventNotifyCallback<*mut T>>,
     notify_context: *mut T,
   ) -> Result<efi::Event, efi::Status> {
+    let create_event = self.efi_boot_services().create_event;
+    if create_event as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut event = MaybeUninit::zeroed();
-    let status = (self.efi_boot_services().create_event)(
+    let status = create_event(
       event_type.into(),
       notify_tpl.into(),
       mem::transmute(notify_function),
@@ -476,8 +481,13 @@ impl BootServices for StandardBootServices<'_> {
     notify_context: *mut T,
     event_group: &'static efi::Guid,
   ) -> Result<efi::Event, efi::Status> {
+    let create_event_ex = self.efi_boot_services().create_event_ex;
+    if create_event_ex as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut event = MaybeUninit::zeroed();
-    let status = (self.efi_boot_services().create_event_ex)(
+    let status = create_event_ex(
       event_type.into(),
       notify_tpl.into(),
       mem::transmute(notify_function),
@@ -493,22 +503,34 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn close_event(&self, event: efi::Event) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().close_event)(event) {
+    let close_event = self.efi_boot_services().close_event;
+    if close_event as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match close_event(event) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
   }
 
   fn signal_event(&self, event: efi::Event) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().signal_event)(event) {
+    let signal_event = self.efi_boot_services().signal_event;
+    if signal_event as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match signal_event(event) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
   }
 
   fn wait_for_event(&self, events: &mut [efi::Event]) -> Result<usize, efi::Status> {
+    let wait_for_event = self.efi_boot_services().wait_for_event;
+    if wait_for_event as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut index = MaybeUninit::zeroed();
-    let status = (self.efi_boot_services().wait_for_event)(events.len(), events.as_mut_ptr(), index.as_mut_ptr());
+    let status = wait_for_event(events.len(), events.as_mut_ptr(), index.as_mut_ptr());
     if status.is_error() {
       Err(status)
     } else {
@@ -517,25 +539,41 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn check_event(&self, event: efi::Event) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().check_event)(event) {
+    let check_event = self.efi_boot_services().check_event;
+    if check_event as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match check_event(event) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
   }
 
   fn set_timer(&self, event: efi::Event, timer_type: EventTimerType, trigger_time: u64) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().set_timer)(event, timer_type.into(), trigger_time) {
+    let set_timer = self.efi_boot_services().set_timer;
+    if set_timer as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match set_timer(event, timer_type.into(), trigger_time) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
   }
 
   fn raise_tpl(&self, new_tpl: Tpl) -> Tpl {
-    (self.efi_boot_services().raise_tpl)(new_tpl.into()).into()
+    let raise_tpl = self.efi_boot_services().raise_tpl;
+    if raise_tpl as usize == 0 {
+      panic!("function not initialize.")
+    }
+    raise_tpl(new_tpl.into()).into()
   }
 
   fn restore_tpl(&self, old_tpl: Tpl) {
-    (self.efi_boot_services().restore_tpl)(old_tpl.into())
+    let restore_tpl = self.efi_boot_services().restore_tpl;
+    if restore_tpl as usize == 0 {
+      panic!("function not initialize.")
+    }
+    restore_tpl(old_tpl.into())
   }
 
   fn allocate_pages(
@@ -544,35 +582,45 @@ impl BootServices for StandardBootServices<'_> {
     memory_type: MemoryType,
     nb_pages: usize,
   ) -> Result<usize, efi::Status> {
+    let allocate_pages = self.efi_boot_services().allocate_pages;
+    if allocate_pages as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut memory_address = match alloc_type {
       AllocType::Address(address) => address,
       _ => 0,
     };
-    match (self.efi_boot_services().allocate_pages)(
-      alloc_type.into(),
-      memory_type.into(),
-      nb_pages,
-      ptr::addr_of_mut!(memory_address) as *mut u64,
-    ) {
+    match allocate_pages(alloc_type.into(), memory_type.into(), nb_pages, ptr::addr_of_mut!(memory_address) as *mut u64)
+    {
       s if s.is_error() => Err(s),
       _ => Ok(memory_address),
     }
   }
 
   fn free_pages(&self, address: usize, nb_pages: usize) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().free_pages)(address as u64, nb_pages) {
+    let free_pages = self.efi_boot_services().free_pages;
+    if free_pages as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match free_pages(address as u64, nb_pages) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
   }
 
   fn get_memory_map<'a>(&'a self) -> Result<MemoryMap<'a, Self>, (efi::Status, usize)> {
+    let get_memory_map = self.efi_boot_services().get_memory_map;
+    if get_memory_map as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut memory_map_size = 0;
     let mut map_key = 0;
     let mut descriptor_size = 0;
     let mut descriptor_version = 0;
 
-    match (self.efi_boot_services().get_memory_map)(
+    match get_memory_map(
       ptr::addr_of_mut!(memory_map_size),
       ptr::null_mut(),
       ptr::addr_of_mut!(map_key),
@@ -585,7 +633,7 @@ impl BootServices for StandardBootServices<'_> {
 
     let buffer = self.allocate_pool(MemoryType::BootServicesData, memory_map_size).map_err(|s| (s, 0))?;
 
-    match (self.efi_boot_services().get_memory_map)(
+    match get_memory_map(
       ptr::addr_of_mut!(memory_map_size),
       buffer as *mut _,
       ptr::addr_of_mut!(map_key),
@@ -604,15 +652,23 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn allocate_pool(&self, memory_type: MemoryType, size: usize) -> Result<*mut u8, efi::Status> {
+    let allocate_pool = self.efi_boot_services().allocate_pool;
+    if allocate_pool as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut buffer = ptr::null_mut();
-    match (self.efi_boot_services().allocate_pool)(memory_type.into(), size, ptr::addr_of_mut!(buffer)) {
+    match allocate_pool(memory_type.into(), size, ptr::addr_of_mut!(buffer)) {
       s if s.is_error() => return Err(s),
       _ => Ok(buffer as *mut u8),
     }
   }
 
   fn free_pool(&self, buffer: *mut u8) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().free_pool)(buffer as *mut c_void) {
+    let free_pool = self.efi_boot_services().free_pool;
+    if free_pool as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match free_pool(buffer as *mut c_void) {
       s if s.is_error() => return Err(s),
       _ => Ok(()),
     }
@@ -624,8 +680,13 @@ impl BootServices for StandardBootServices<'_> {
     protocol: &'static efi::Guid,
     interface: *mut c_void,
   ) -> Result<efi::Handle, efi::Status> {
+    let install_protocol_interface = self.efi_boot_services().install_protocol_interface;
+    if install_protocol_interface as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut handle = handle.unwrap_or(ptr::null_mut());
-    match (self.efi_boot_services().install_protocol_interface)(
+    match install_protocol_interface(
       ptr::addr_of_mut!(handle),
       protocol as *const _ as *mut _,
       efi::NATIVE_INTERFACE,
@@ -642,11 +703,11 @@ impl BootServices for StandardBootServices<'_> {
     protocol: &'static efi::Guid,
     interface: Option<*mut c_void>,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().uninstall_protocol_interface)(
-      handle,
-      protocol as *const _ as *mut _,
-      interface.unwrap_or(ptr::null_mut()),
-    ) {
+    let uninstall_protocol_interface = self.efi_boot_services().uninstall_protocol_interface;
+    if uninstall_protocol_interface as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match uninstall_protocol_interface(handle, protocol as *const _ as *mut _, interface.unwrap_or(ptr::null_mut())) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
@@ -659,7 +720,11 @@ impl BootServices for StandardBootServices<'_> {
     old_protocol_interface: Option<*mut c_void>,
     new_protocol_interface: Option<*mut c_void>,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().reinstall_protocol_interface)(
+    let reinstall_protocol_interface = self.efi_boot_services().reinstall_protocol_interface;
+    if reinstall_protocol_interface as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match reinstall_protocol_interface(
       handle,
       protocol as *const _ as *mut _,
       old_protocol_interface.unwrap_or(ptr::null_mut()),
@@ -671,18 +736,22 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn register_protocol_notify(&self, protocol: &efi::Guid, event: efi::Event) -> Result<Registration, efi::Status> {
+    let register_protocol_notify = self.efi_boot_services().register_protocol_notify;
+    if register_protocol_notify as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut registration = MaybeUninit::uninit();
-    match (self.efi_boot_services().register_protocol_notify)(
-      protocol as *const _ as *mut _,
-      event,
-      registration.as_mut_ptr() as *mut _,
-    ) {
+    match register_protocol_notify(protocol as *const _ as *mut _, event, registration.as_mut_ptr() as *mut _) {
       s if s.is_error() => Err(s),
       _ => Ok(unsafe { registration.assume_init() }),
     }
   }
 
   fn locate_handle(&self, search_type: HandleSearchType) -> Result<BootServicesBox<[efi::Handle], Self>, efi::Status> {
+    let locate_handle = self.efi_boot_services().locate_handle;
+    if locate_handle as usize == 0 {
+      panic!("function not initialize.")
+    }
     let protocol = match search_type {
       HandleSearchType::ByProtocol(p) => p as *const _ as *mut _,
       _ => ptr::null_mut(),
@@ -694,17 +763,11 @@ impl BootServices for StandardBootServices<'_> {
 
     // Use to get the buffer_size
     let mut buffer_size = 0;
-    (self.efi_boot_services().locate_handle)(
-      search_type.into(),
-      protocol,
-      search_key,
-      ptr::addr_of_mut!(buffer_size),
-      ptr::null_mut(),
-    );
+    locate_handle(search_type.into(), protocol, search_key, ptr::addr_of_mut!(buffer_size), ptr::null_mut());
 
     let buffer = self.allocate_pool(MemoryType::BootServicesData, buffer_size)?;
 
-    match (self.efi_boot_services().locate_handle)(
+    match locate_handle(
       search_type.into(),
       protocol,
       search_key,
@@ -719,12 +782,12 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn handle_protocol_unchecked(&self, handle: efi::Handle, protocol: &efi::Guid) -> Result<*mut c_void, efi::Status> {
+    let handle_protocol = self.efi_boot_services().handle_protocol;
+    if handle_protocol as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut interface = ptr::null_mut();
-    match (self.efi_boot_services().handle_protocol)(
-      handle,
-      protocol as *const _ as *mut _,
-      ptr::addr_of_mut!(interface),
-    ) {
+    match handle_protocol(handle, protocol as *const _ as *mut _, ptr::addr_of_mut!(interface)) {
       s if s.is_error() => Err(s),
       _ => Ok(interface),
     }
@@ -735,12 +798,12 @@ impl BootServices for StandardBootServices<'_> {
     protocol: &efi::Guid,
     device_path: *mut *mut efi::protocols::device_path::Protocol,
   ) -> Result<efi::Handle, efi::Status> {
+    let locate_device_path = self.efi_boot_services().locate_device_path;
+    if locate_device_path as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut device = ptr::null_mut();
-    match (self.efi_boot_services().locate_device_path)(
-      protocol as *const _ as *mut _,
-      device_path,
-      ptr::addr_of_mut!(device),
-    ) {
+    match locate_device_path(protocol as *const _ as *mut _, device_path, ptr::addr_of_mut!(device)) {
       s if s.is_error() => Err(s),
       _ => Ok(device),
     }
@@ -754,8 +817,12 @@ impl BootServices for StandardBootServices<'_> {
     controller_handle: efi::Handle,
     attribute: u32,
   ) -> Result<*mut c_void, efi::Status> {
+    let open_protocol = self.efi_boot_services().open_protocol;
+    if open_protocol as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut interface = ptr::null_mut();
-    match (self.efi_boot_services().open_protocol)(
+    match open_protocol(
       handle,
       protocol as *const _ as *mut _,
       ptr::addr_of_mut!(interface),
@@ -775,12 +842,11 @@ impl BootServices for StandardBootServices<'_> {
     agent_handle: efi::Handle,
     controller_handle: efi::Handle,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().close_protocol)(
-      handle,
-      protocol as *const _ as *mut _,
-      agent_handle,
-      controller_handle,
-    ) {
+    let close_protocol = self.efi_boot_services().close_protocol;
+    if close_protocol as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match close_protocol(handle, protocol as *const _ as *mut _, agent_handle, controller_handle) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
@@ -794,9 +860,14 @@ impl BootServices for StandardBootServices<'_> {
   where
     Self: Sized,
   {
+    let open_protocol_information = self.efi_boot_services().open_protocol_information;
+    if open_protocol_information as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut entry_buffer = ptr::null_mut();
     let mut entry_count = 0;
-    match (self.efi_boot_services().open_protocol_information)(
+    match open_protocol_information(
       handle,
       protocol as *const _ as *mut _,
       ptr::addr_of_mut!(entry_buffer),
@@ -814,13 +885,18 @@ impl BootServices for StandardBootServices<'_> {
     remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
     recursive: bool,
   ) -> Result<(), efi::Status> {
+    let connect_controller = self.efi_boot_services().connect_controller;
+    if connect_controller as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let driver_image_handle = if driver_image_handle.is_empty() {
       ptr::null_mut()
     } else {
       driver_image_handle.push(ptr::null_mut());
       driver_image_handle.as_mut_ptr()
     };
-    match (self.efi_boot_services().connect_controller)(
+    match connect_controller(
       controller_handle,
       driver_image_handle,
       remaining_device_path.unwrap_or(ptr::null_mut()),
@@ -837,7 +913,11 @@ impl BootServices for StandardBootServices<'_> {
     driver_image_handle: Option<efi::Handle>,
     child_handle: Option<efi::Handle>,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().disconnect_controller)(
+    let disconnect_controller = self.efi_boot_services().disconnect_controller;
+    if disconnect_controller as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match disconnect_controller(
       controller_handle,
       driver_image_handle.unwrap_or(ptr::null_mut()),
       child_handle.unwrap_or(ptr::null_mut()),
@@ -848,9 +928,14 @@ impl BootServices for StandardBootServices<'_> {
   }
 
   fn protocols_per_handle(&self, handle: efi::Handle) -> Result<BootServicesBox<[efi::Guid], Self>, efi::Status> {
+    let protocols_per_handle = self.efi_boot_services().protocols_per_handle;
+    if protocols_per_handle as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut protocol_buffer = ptr::null_mut();
     let mut protocol_buffer_count = 0;
-    match (self.efi_boot_services().protocols_per_handle)(
+    match protocols_per_handle(
       handle,
       ptr::addr_of_mut!(protocol_buffer),
       ptr::addr_of_mut!(protocol_buffer_count),
@@ -869,6 +954,11 @@ impl BootServices for StandardBootServices<'_> {
   where
     Self: Sized,
   {
+    let locate_handle_buffer = self.efi_boot_services().locate_handle_buffer;
+    if locate_handle_buffer as usize == 0 {
+      panic!("function not initialize.")
+    }
+
     let mut buffer = ptr::null_mut();
     let mut buffer_count = 0;
     let protocol = match search_type {
@@ -879,7 +969,7 @@ impl BootServices for StandardBootServices<'_> {
       HandleSearchType::ByRegisterNotify(k) => k,
       _ => ptr::null_mut(),
     };
-    match (self.efi_boot_services().locate_handle_buffer)(
+    match locate_handle_buffer(
       search_type.into(),
       protocol,
       search_key,
@@ -896,8 +986,12 @@ impl BootServices for StandardBootServices<'_> {
     protocol: &'static efi::Guid,
     registration: Option<*mut c_void>,
   ) -> Result<*mut c_void, efi::Status> {
+    let locate_protocol = self.efi_boot_services().locate_protocol;
+    if locate_protocol as usize == 0 {
+      panic!("function not initialize.")
+    }
     let mut interface = ptr::null_mut();
-    match (self.efi_boot_services().locate_protocol)(
+    match locate_protocol(
       protocol as *const _ as *mut _,
       registration.unwrap_or(ptr::null_mut()),
       ptr::addr_of_mut!(interface),
@@ -912,7 +1006,11 @@ impl BootServices for StandardBootServices<'_> {
     guid: &efi::Guid,
     table: T,
   ) -> Result<(), efi::Status> {
-    match (self.efi_boot_services().install_configuration_table)(
+    let install_configuration_table = self.efi_boot_services().install_configuration_table;
+    if install_configuration_table as usize == 0 {
+      panic!("function not initialize.")
+    }
+    match install_configuration_table(
       guid as *const _ as *mut _,
       table.into_raw_mut() as *mut c_void,
     ) {
