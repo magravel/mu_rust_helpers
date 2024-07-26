@@ -1,4 +1,8 @@
-use core::{mem::MaybeUninit, ptr::{self, NonNull}, ffi::c_void};
+use core::{
+  ffi::c_void,
+  mem::MaybeUninit,
+  ptr::{self, NonNull},
+};
 
 use boot_services::{
   event::EventType,

@@ -992,11 +992,7 @@ impl BootServices for StandardBootServices<'_> {
       panic!("function not initialize.")
     }
     let mut interface = ptr::null_mut();
-    match locate_protocol(
-      protocol as *const _ as *mut _,
-      registration,
-      ptr::addr_of_mut!(interface),
-    ) {
+    match locate_protocol(protocol as *const _ as *mut _, registration, ptr::addr_of_mut!(interface)) {
       s if s.is_error() => Err(s),
       _ => Ok(interface),
     }
