@@ -245,6 +245,12 @@ pub trait BootServices: Sized {
   /// </a>
   fn restore_tpl(&self, tpl: Tpl);
 
+  /// Allocates memory pages from the system.
+  ///
+  /// UEFI Spec Documentation:
+  /// <a href="https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html#efi-boot-services-allocatepages" target="_blank">
+  ///   7.2.1. EFI_BOOT_SERVICES.AllocatePages()
+  /// </a>
   fn allocate_pages(
     &self,
     alloc_type: AllocType,
@@ -1263,10 +1269,7 @@ mod test {
 
   #[test]
   fn test_raise_tpl_guarded() {
-    let boot_services = boot_services!(
-      raise_tpl = efi_raise_tpl,
-      restore_tpl = efi_restore_tpl
-    );
+    let boot_services = boot_services!(raise_tpl = efi_raise_tpl, restore_tpl = efi_restore_tpl);
 
     static CURRENT_TPL: AtomicUsize = AtomicUsize::new(efi::TPL_APPLICATION);
 
@@ -1309,5 +1312,62 @@ mod test {
     }
 
     boot_services.restore_tpl(Tpl::APPLICATION);
+  }
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_allocate_pages_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.allocate_pages(AllocType::AnyPage, MemoryType::ACPIMemoryNVS, 0);
+  }
+
+  #[test]
+  fn test_allocate_pages() {
+    let boot_services = boot_services!(allocate_pages = efi_allocate_pages);
+
+    extern "efiapi" fn efi_allocate_pages(
+      alloc_type: u32,
+      mem_type: u32,
+      nb_pages: usize,
+      memory: *mut u64,
+    ) -> efi::Status {
+      let expected_alloc_type: efi::AllocateType = AllocType::AnyPage.into();
+      assert_eq!(expected_alloc_type, alloc_type);
+      let expected_mem_type: efi::MemoryType = MemoryType::MemoryMappedIO.into();
+      assert_eq!(expected_mem_type, mem_type);
+      assert_eq!(4, nb_pages);
+      assert_ne!(ptr::null_mut(), memory);
+      assert_eq!(0, unsafe { *memory });
+      unsafe { ptr::write(memory, 17) }
+      efi::Status::SUCCESS
+    }
+
+    let status = boot_services.allocate_pages(AllocType::AnyPage, MemoryType::MemoryMappedIO, 4);
+
+    assert!(matches!(status, Ok(17)));
+  }
+
+  #[test]
+  fn test_allocate_pages_at_specific_address() {
+    let boot_services = boot_services!(allocate_pages = efi_allocate_pages);
+
+    extern "efiapi" fn efi_allocate_pages(
+      alloc_type: u32,
+      mem_type: u32,
+      nb_pages: usize,
+      memory: *mut u64,
+    ) -> efi::Status {
+      let expected_alloc_type: efi::AllocateType = AllocType::Address(17).into();
+      assert_eq!(expected_alloc_type, alloc_type);
+      let expected_mem_type: efi::MemoryType = MemoryType::MemoryMappedIO.into();
+      assert_eq!(expected_mem_type, mem_type);
+      assert_eq!(4, nb_pages);
+      assert_ne!(ptr::null_mut(), memory);
+      assert_eq!(17, unsafe { *memory });
+      efi::Status::SUCCESS
+    }
+
+    let status = boot_services.allocate_pages(AllocType::Address(17), MemoryType::MemoryMappedIO, 4);
+    assert!(matches!(status, Ok(17)));
   }
 }
