@@ -1,4 +1,4 @@
-use core::{ffi::c_void, ops::Deref};
+use core::{ffi::c_void, ops::Deref, ptr::NonNull};
 
 use r_efi::efi;
 
@@ -7,7 +7,7 @@ pub unsafe trait Protocol: Deref<Target = efi::Guid> {
   fn protocol_guid(&self) -> &'static efi::Guid;
 }
 
-pub type Registration = *mut c_void;
+pub type Registration = NonNull<c_void>;
 
 #[derive(Debug, Clone, Copy)]
 pub enum HandleSearchType {

@@ -1,5 +1,4 @@
-use core::mem::MaybeUninit;
-use std::ptr;
+use core::{mem::MaybeUninit, ptr::{self, NonNull}, ffi::c_void};
 
 use boot_services::{
   event::EventType,
@@ -11,11 +10,16 @@ use r_efi::efi;
 
 fn main() {
   let mut boot_services = MockBootServices::new();
+
   let _ = boot_services
     .expect_create_event::<Box<MaybeUninit<Registration>>>()
     .withf(|_, _, _, _| true)
     .returning(|_, _, _, _| Ok(ptr::null_mut()));
-  let _ = boot_services.expect_register_protocol_notify().withf(|_, _| true).returning(|_, _| Ok(ptr::null_mut()));
+
+  let _ = boot_services
+    .expect_register_protocol_notify()
+    .withf(|_, _| true)
+    .returning(|_, _| Ok(NonNull::<c_void>::dangling()));
 
   extern "efiapi" fn event_notify_callback(_event: efi::Event, context: Box<MaybeUninit<Registration>>) {
     println!("{context:?}")

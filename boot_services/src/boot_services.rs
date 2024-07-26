@@ -26,6 +26,7 @@ use core::{
   sync::atomic::{AtomicPtr, Ordering},
 };
 use static_ptr::{StaticPtr, StaticPtrMut};
+use std::any::TypeId;
 
 use r_efi::efi;
 
@@ -265,8 +266,7 @@ pub trait BootServices: Sized {
     protocol: &P,
     interface: &'static mut I,
   ) -> Result<efi::Handle, efi::Status> {
-    let interface_any = interface as &dyn Any;
-    let interface_ptr = match interface_any.downcast_ref::<()>() {
+    let interface_ptr = match (interface as &dyn Any).downcast_ref::<()>() {
       Some(()) => ptr::null_mut(),
       None => interface as *mut _ as *mut c_void,
     };
@@ -281,43 +281,50 @@ pub trait BootServices: Sized {
     interface: *mut c_void,
   ) -> Result<efi::Handle, efi::Status>;
 
-  fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
+  fn uninstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: Any + 'static>(
     &self,
     handle: efi::Handle,
     protocol: &P,
-    interface: Option<&'static mut I>,
+    interface: &'static mut I,
   ) -> Result<(), efi::Status> {
+    let interface_ptr = match (interface as &dyn Any).downcast_ref::<()>() {
+      Some(()) => ptr::null_mut(),
+      None => interface as *mut _ as *mut c_void,
+    };
     //SAFETY: The generic Protocol ensure that the interface is the right type for the specified protocol.
-    unsafe {
-      self.uninstall_protocol_interface_unchecked(
-        handle,
-        protocol.protocol_guid(),
-        interface.map(|i| i as *mut _ as *mut c_void),
-      )
-    }
+    unsafe { self.uninstall_protocol_interface_unchecked(handle, protocol.protocol_guid(), interface_ptr) }
   }
 
   unsafe fn uninstall_protocol_interface_unchecked(
     &self,
     handle: efi::Handle,
     protocol: &'static efi::Guid,
-    interface: Option<*mut c_void>,
+    interface: *mut c_void,
   ) -> Result<(), efi::Status>;
 
   fn reinstall_protocol_interface<P: Protocol<Interface = I> + 'static, I: 'static>(
     &self,
     handle: efi::Handle,
     protocol: &P,
-    old_protocol_interface: Option<&'static mut I>,
-    new_protocol_interface: Option<&'static mut I>,
+    old_protocol_interface: &'static mut I,
+    new_protocol_interface: &'static mut I,
   ) -> Result<(), efi::Status> {
+    let old_protocol_interface_ptr;
+    let new_protocol_interface_ptr;
+    if TypeId::of::<I>() == TypeId::of::<()>() {
+      old_protocol_interface_ptr = ptr::null_mut();
+      new_protocol_interface_ptr = ptr::null_mut();
+    } else {
+      old_protocol_interface_ptr = old_protocol_interface as *mut _ as *mut c_void;
+      new_protocol_interface_ptr = new_protocol_interface as *mut _ as *mut c_void;
+    }
     //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
     unsafe {
       self.reinstall_protocol_interface_unchecked(
         handle,
         protocol.protocol_guid(),
-        old_protocol_interface.map(|i| i as *mut _ as *mut c_void),
-        new_protocol_interface.map(|i| i as *mut _ as *mut c_void),
+        old_protocol_interface_ptr,
+        new_protocol_interface_ptr,
       )
     }
   }
@@ -326,8 +333,8 @@ pub trait BootServices: Sized {
     &self,
     handle: efi::Handle,
     protocol: &'static efi::Guid,
-    old_protocol_interface: Option<*mut c_void>,
-    new_protocol_interface: Option<*mut c_void>,
+    old_protocol_interface: *mut c_void,
+    new_protocol_interface: *mut c_void,
   ) -> Result<(), efi::Status>;
 
   fn register_protocol_notify(
@@ -401,7 +408,7 @@ pub trait BootServices: Sized {
     &self,
     controller_handle: efi::Handle,
     driver_image_handle: Vec<efi::Handle>,
-    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
+    remaining_device_path: *mut efi::protocols::device_path::Protocol,
     recursive: bool,
   ) -> Result<(), efi::Status>;
 
@@ -426,16 +433,19 @@ pub trait BootServices: Sized {
     &self,
     protocol: &P,
     registration: Option<Registration>,
-  ) -> Option<&'static mut I> {
+  ) -> Result<Option<&'static mut I>, efi::Status> {
     //SAFETY: The generic Protocol ensure that the interfaces is the right type for the specified protocol.
-    unsafe { self.locate_protocol_unchecked(protocol.protocol_guid(), registration).map(|x| (x as *mut I).as_mut()) }
-      .unwrap_or(None)
+    unsafe {
+      let interface = self
+        .locate_protocol_unchecked(protocol.protocol_guid(), registration.map_or(ptr::null_mut(), |r| r.as_ptr()))?;
+      Ok((interface as *mut I).as_mut())
+    }
   }
 
   fn locate_protocol_unchecked(
     &self,
     protocol: &'static efi::Guid,
-    registration: Option<*mut c_void>,
+    registration: *mut c_void,
   ) -> Result<*mut c_void, efi::Status>;
 
   fn intall_configuration_table<T: StaticPtrMut + 'static>(
@@ -701,13 +711,13 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     handle: efi::Handle,
     protocol: &'static efi::Guid,
-    interface: Option<*mut c_void>,
+    interface: *mut c_void,
   ) -> Result<(), efi::Status> {
     let uninstall_protocol_interface = self.efi_boot_services().uninstall_protocol_interface;
     if uninstall_protocol_interface as usize == 0 {
       panic!("function not initialize.")
     }
-    match uninstall_protocol_interface(handle, protocol as *const _ as *mut _, interface.unwrap_or(ptr::null_mut())) {
+    match uninstall_protocol_interface(handle, protocol as *const _ as *mut _, interface) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
@@ -717,8 +727,8 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     handle: efi::Handle,
     protocol: &'static efi::Guid,
-    old_protocol_interface: Option<*mut c_void>,
-    new_protocol_interface: Option<*mut c_void>,
+    old_protocol_interface: *mut c_void,
+    new_protocol_interface: *mut c_void,
   ) -> Result<(), efi::Status> {
     let reinstall_protocol_interface = self.efi_boot_services().reinstall_protocol_interface;
     if reinstall_protocol_interface as usize == 0 {
@@ -727,8 +737,8 @@ impl BootServices for StandardBootServices<'_> {
     match reinstall_protocol_interface(
       handle,
       protocol as *const _ as *mut _,
-      old_protocol_interface.unwrap_or(ptr::null_mut()),
-      new_protocol_interface.unwrap_or(ptr::null_mut()),
+      old_protocol_interface,
+      new_protocol_interface,
     ) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
@@ -757,7 +767,7 @@ impl BootServices for StandardBootServices<'_> {
       _ => ptr::null_mut(),
     };
     let search_key = match search_type {
-      HandleSearchType::ByRegisterNotify(k) => k,
+      HandleSearchType::ByRegisterNotify(r) => r.as_ptr(),
       _ => ptr::null_mut(),
     };
 
@@ -882,7 +892,7 @@ impl BootServices for StandardBootServices<'_> {
     &self,
     controller_handle: efi::Handle,
     mut driver_image_handle: Vec<efi::Handle>,
-    remaining_device_path: Option<*mut efi::protocols::device_path::Protocol>,
+    remaining_device_path: *mut efi::protocols::device_path::Protocol,
     recursive: bool,
   ) -> Result<(), efi::Status> {
     let connect_controller = self.efi_boot_services().connect_controller;
@@ -896,12 +906,7 @@ impl BootServices for StandardBootServices<'_> {
       driver_image_handle.push(ptr::null_mut());
       driver_image_handle.as_mut_ptr()
     };
-    match connect_controller(
-      controller_handle,
-      driver_image_handle,
-      remaining_device_path.unwrap_or(ptr::null_mut()),
-      recursive.into(),
-    ) {
+    match connect_controller(controller_handle, driver_image_handle, remaining_device_path, recursive.into()) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
@@ -935,11 +940,7 @@ impl BootServices for StandardBootServices<'_> {
 
     let mut protocol_buffer = ptr::null_mut();
     let mut protocol_buffer_count = 0;
-    match protocols_per_handle(
-      handle,
-      ptr::addr_of_mut!(protocol_buffer),
-      ptr::addr_of_mut!(protocol_buffer_count),
-    ) {
+    match protocols_per_handle(handle, ptr::addr_of_mut!(protocol_buffer), ptr::addr_of_mut!(protocol_buffer_count)) {
       s if s.is_error() => Err(s),
       _ => {
         Ok(unsafe { BootServicesBox::<[_], _>::from_raw_parts(protocol_buffer as *mut _, protocol_buffer_count, self) })
@@ -966,7 +967,7 @@ impl BootServices for StandardBootServices<'_> {
       _ => ptr::null_mut(),
     };
     let search_key = match search_type {
-      HandleSearchType::ByRegisterNotify(k) => k,
+      HandleSearchType::ByRegisterNotify(r) => r.as_ptr(),
       _ => ptr::null_mut(),
     };
     match locate_handle_buffer(
@@ -984,7 +985,7 @@ impl BootServices for StandardBootServices<'_> {
   fn locate_protocol_unchecked(
     &self,
     protocol: &'static efi::Guid,
-    registration: Option<*mut c_void>,
+    registration: *mut c_void,
   ) -> Result<*mut c_void, efi::Status> {
     let locate_protocol = self.efi_boot_services().locate_protocol;
     if locate_protocol as usize == 0 {
@@ -993,7 +994,7 @@ impl BootServices for StandardBootServices<'_> {
     let mut interface = ptr::null_mut();
     match locate_protocol(
       protocol as *const _ as *mut _,
-      registration.unwrap_or(ptr::null_mut()),
+      registration,
       ptr::addr_of_mut!(interface),
     ) {
       s if s.is_error() => Err(s),
@@ -1010,10 +1011,7 @@ impl BootServices for StandardBootServices<'_> {
     if install_configuration_table as usize == 0 {
       panic!("function not initialize.")
     }
-    match install_configuration_table(
-      guid as *const _ as *mut _,
-      table.into_raw_mut() as *mut c_void,
-    ) {
+    match install_configuration_table(guid as *const _ as *mut _, table.into_raw_mut() as *mut c_void) {
       s if s.is_error() => Err(s),
       _ => Ok(()),
     }
