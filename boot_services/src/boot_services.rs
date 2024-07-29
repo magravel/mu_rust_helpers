@@ -1031,6 +1031,7 @@ mod test {
     ($($efi_services:ident = $efi_service_fn:ident),*) => {{
       static BOOT_SERVICE: StandardBootServices = StandardBootServices::new_uninit();
       let efi_boot_services = unsafe {
+        #[allow(unused_mut)]
         let mut bs = MaybeUninit::<efi::BootServices>::zeroed();
         $(
           bs.assume_init_mut().$efi_services = $efi_service_fn;
@@ -1056,6 +1057,18 @@ mod test {
     let bs = StandardBootServices::new_uninit();
     bs.initialize(efi_bs);
     bs.initialize(efi_bs);
+  }
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_create_event_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.create_event(
+      EventType::RUNTIME,
+      Tpl::APPLICATION,
+      None,
+      &(),
+    );
   }
 
   #[test]
@@ -1118,6 +1131,21 @@ mod test {
     let status = boot_services.create_event(EventType::RUNTIME | EventType::NOTIFY_SIGNAL, Tpl::APPLICATION, None, &());
 
     assert!(matches!(status, Ok(_)));
+  }
+
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_create_event_ex_not_init() {
+    static GUID: efi::Guid = efi::Guid::from_fields(0, 0, 0, 0, 0, &[0; 6]);
+    let boot_services = boot_services!();
+    let _ = boot_services.create_event_ex(
+      EventType::RUNTIME,
+      Tpl::APPLICATION,
+      None,
+      &(),
+      &GUID
+    );
   }
 
   #[test]
@@ -1189,6 +1217,13 @@ mod test {
   }
 
   #[test]
+  #[should_panic = "function not initialize."]
+  fn test_close_event_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.close_event(ptr::null_mut());
+  }
+
+  #[test]
   fn test_close_event() {
     let boot_services = boot_services!(close_event = efi_close_event);
 
@@ -1203,6 +1238,13 @@ mod test {
   }
 
   #[test]
+  #[should_panic = "function not initialize."]
+  fn test_signal_event_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.signal_event(ptr::null_mut());
+  }
+
+  #[test]
   fn test_signal_event() {
     let boot_services = boot_services!(signal_event = efi_signal_event);
 
@@ -1214,6 +1256,14 @@ mod test {
     let event = 1_usize as efi::Event;
     let status = boot_services.signal_event(event);
     assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_wait_for_event_not_init() {
+    let boot_services = boot_services!();
+    let mut events = vec![];
+    let _ = boot_services.wait_for_event(&mut events);
   }
 
   #[test]
@@ -1238,6 +1288,13 @@ mod test {
   }
 
   #[test]
+  #[should_panic = "function not initialize."]
+  fn test_check_event_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.check_event(ptr::null_mut());
+  }
+
+  #[test]
   fn test_check_event() {
     let boot_services = boot_services!(check_event = efi_check_event);
 
@@ -1249,6 +1306,13 @@ mod test {
     let event = 1_usize as efi::Event;
     let status = boot_services.check_event(event);
     assert!(matches!(status, Ok(())));
+  }
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_set_timer_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.set_timer(ptr::null_mut(), EventTimerType::Relative, 0);
   }
 
   #[test]
@@ -1291,6 +1355,13 @@ mod test {
   }
 
   #[test]
+  #[should_panic = "function not initialize."]
+  fn test_raise_tpl_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.raise_tpl(Tpl::CALLBACK);
+  }
+
+  #[test]
   fn test_raise_tpl() {
     let boot_services = boot_services!(raise_tpl = efi_raise_tpl);
 
@@ -1301,6 +1372,13 @@ mod test {
 
     let status = boot_services.raise_tpl(Tpl::NOTIFY);
     assert_eq!(Tpl::APPLICATION, status);
+  }
+
+  #[test]
+  #[should_panic = "function not initialize."]
+  fn test_restore_tpl_not_init() {
+    let boot_services = boot_services!();
+    let _ = boot_services.restore_tpl(Tpl::APPLICATION);
   }
 
   #[test]
