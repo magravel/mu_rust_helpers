@@ -454,7 +454,7 @@ pub trait BootServices: Sized {
     registration: *mut c_void,
   ) -> Result<*mut c_void, efi::Status>;
 
-  fn intall_configuration_table<T: StaticPtrMut + 'static>(
+  fn install_configuration_table<T: StaticPtrMut + 'static>(
     &self,
     guid: &efi::Guid,
     table: T,
@@ -1004,7 +1004,7 @@ impl BootServices for StandardBootServices<'_> {
     }
   }
 
-  fn intall_configuration_table<T: StaticPtrMut + 'static>(
+  fn install_configuration_table<T: StaticPtrMut + 'static>(
     &self,
     guid: &efi::Guid,
     table: T,
