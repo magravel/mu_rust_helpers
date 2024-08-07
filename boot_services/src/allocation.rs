@@ -7,7 +7,7 @@ use crate::{boxed::BootServicesBox, BootServices};
 #[derive(Debug)]
 pub enum AllocType {
   AnyPage,
-  MaxAddress,
+  MaxAddress(usize),
   Address(usize),
 }
 
@@ -87,7 +87,7 @@ impl Into<efi::AllocateType> for AllocType {
   fn into(self) -> efi::AllocateType {
     match self {
       AllocType::AnyPage => efi::ALLOCATE_ANY_PAGES,
-      AllocType::MaxAddress => efi::ALLOCATE_MAX_ADDRESS,
+      AllocType::MaxAddress(_) => efi::ALLOCATE_MAX_ADDRESS,
       AllocType::Address(_) => efi::ALLOCATE_ADDRESS,
     }
   }

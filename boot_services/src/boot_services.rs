@@ -17,7 +17,7 @@ use mockall::automock;
 
 use alloc::vec::Vec;
 use core::{
-  any::Any,
+  any::{Any, TypeId},
   ffi::c_void,
   marker::PhantomData,
   mem::{self, MaybeUninit},
@@ -26,7 +26,6 @@ use core::{
   sync::atomic::{AtomicPtr, Ordering},
 };
 use static_ptr::{StaticPtr, StaticPtrMut};
-use std::any::TypeId;
 
 use r_efi::efi;
 

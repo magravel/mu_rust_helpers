@@ -9,8 +9,8 @@ use crate::{allocation::MemoryType, BootServices};
 
 #[derive(Debug)]
 pub struct BootServicesBox<'a, T: ?Sized, B: BootServices> {
-  boot_services: &'a B,
   ptr: *mut T,
+  boot_services: &'a B,
 }
 
 impl<'a, T, B: BootServices> BootServicesBox<'a, T, B> {
@@ -23,6 +23,20 @@ impl<'a, T, B: BootServices> BootServicesBox<'a, T, B> {
 
   pub unsafe fn from_raw(ptr: *mut T, boot_services: &'a B) -> Self {
     Self { boot_services, ptr }
+  }
+
+  pub unsafe fn into_raw(self) -> *const T {
+    self.ptr as *const T
+  }
+
+  pub unsafe fn into_raw_mut(self) -> *mut T {
+    self.ptr
+  }
+
+  pub fn leak(self) -> &'a mut T {
+    let leak = unsafe { self.ptr.as_mut() }.unwrap();
+    mem::forget(self);
+    leak
   }
 }
 
